@@ -268,6 +268,8 @@ run :-
     halt(0).
 run :-
     halt(1).
+
+:- initialization(run, main).
 """
             runner_file = tmppath / "runner.pl"
             runner_file.write_text(runner_script, encoding="utf-8")
@@ -278,12 +280,7 @@ run :-
                 "--no-packs",
                 "--tty=false",
                 "-q",
-                "-s",
                 str(runner_file),
-                "-g",
-                "run",
-                "-t",
-                "halt",
             ]
             proc = subprocess.run(
                 cmd,
