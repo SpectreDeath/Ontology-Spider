@@ -14,6 +14,9 @@ license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = []
 
+[project.scripts]
+dialog = "ontology_spider.cli:main"
+
 [project.optional-dependencies]
 dev = []
 
