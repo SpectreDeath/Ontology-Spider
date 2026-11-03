@@ -272,7 +272,19 @@ run :-
             runner_file = tmppath / "runner.pl"
             runner_file.write_text(runner_script, encoding="utf-8")
 
-            cmd = [self.swipl_path, "-q", "-f", str(runner_file), "-g", "run.", "-t", "halt."]
+            cmd = [
+                self.swipl_path,
+                "--no-pce",
+                "--no-packs",
+                "--tty=false",
+                "-q",
+                "-s",
+                str(runner_file),
+                "-g",
+                "run.",
+                "-t",
+                "halt.",
+            ]
             proc = subprocess.run(
                 cmd,
                 stdin=subprocess.DEVNULL,
