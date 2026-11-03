@@ -1,7 +1,7 @@
 import unittest
 
 from ontology_spider.elicitation import ElicitationManager, ElicitationState
-from ontology_spider.model import SUBCLASS_OF, INSTANCE_OF
+from ontology_spider.model import SUBCLASS_OF, INSTANCE_OF, DISJOINT_WITH
 
 
 class TestElicitation(unittest.TestCase):
@@ -102,6 +102,151 @@ class TestElicitation(unittest.TestCase):
         # Assertions from that turn must be retracted
         remaining = manager.model.query(subject="dog")
         self.assertEqual(len(remaining), 0)
+        # New assertion should be present
+        canine_asrt = manager.model.query(subject="canine")
+        self.assertEqual(len(canine_asrt), 1)
+
+    def test_disjoint_and_attributes_and_dependency_tracking(self):
+        manager = ElicitationManager()
+        manager.start()
+        manager.step("Robotics")
+        manager.step("done")
+
+        # Class 1: aerial_robot subclass_of robot
+        manager.step("aerial_robot subclass_of robot")
+        manager.step("y")
+        turn_class1 = manager.turns[-1].turn_id
+
+        # Class 2: ground_robot subclass_of robot
+        manager.step("ground_robot subclass_of robot")
+        manager.step("y")
+        turn_class2 = manager.turns[-1].turn_id
+
+        # Class 3: aerial_robot disjoint_with ground_robot
+        manager.step("aerial_robot disjoint_with ground_robot")
+        manager.step("y")
+        turn_disjoint = manager.turns[-1]
+        self.assertIn(turn_class1, turn_disjoint.depends_on_turn_ids)
+        self.assertIn(turn_class2, turn_disjoint.depends_on_turn_ids)
+
+        manager.step("done")  # Skip classes
+
+        # Relation: flies_in domain=aerial_robot range=airspace acyclic=true
+        manager.step("flies_in domain=aerial_robot range=airspace acyclic=true")
+        manager.step("y")
+        turn_rel = manager.turns[-1]
+        self.assertIn(turn_class1, turn_rel.depends_on_turn_ids)
+
+        manager.step("done")  # Skip relations
+
+        # Instance: drone1 instance_of aerial_robot [payload_kg=5, max_speed=40]
+        manager.step("drone1 instance_of aerial_robot [payload_kg=5, max_speed=40]")
+        manager.step("y")
+        turn_inst = manager.turns[-1]
+        self.assertIn(turn_class1, turn_inst.depends_on_turn_ids)
+
+        # Verify entity attributes
+        drone_ent = manager.model.get_entity("drone1")
+        self.assertIsNotNone(drone_ent)
+        self.assertEqual(drone_ent.attributes.get("payload_kg"), 5)
+        self.assertEqual(drone_ent.attributes.get("max_speed"), 40)
+
+        # Verify disjoint assertion exists
+        disj = manager.model.query(predicate=DISJOINT_WITH)
+        self.assertEqual(len(disj), 1)
+        self.assertEqual(disj[0].relation.subject, "aerial_robot")
+        self.assertEqual(disj[0].relation.object, "ground_robot")
+
+    def test_full_amendment_with_downstream_reconfirmation(self):
+        manager = ElicitationManager()
+        manager.start()
+        manager.step("Aviation")
+        manager.step("done")
+
+        # Class: drone subclass_of aircraft
+        manager.step("drone subclass_of aircraft")
+        manager.step("y")
+        turn_class = manager.turns[-1].turn_id
+
+        manager.step("done")  # to relations
+        manager.step("done")  # to instances
+
+        # Instance: sky_scout instance_of drone [range_km=100]
+        manager.step("sky_scout instance_of drone [range_km=100]")
+        manager.step("y")
+        turn_inst = manager.turns[-1].turn_id
+
+        self.assertEqual(len(manager.model.assertions), 2)
+
+        # Amend class turn
+        amend_msg = manager.amend_turn(turn_class, "uav subclass_of aircraft")
+        self.assertIn("re-confirmation required", amend_msg.lower())
+        self.assertEqual(len(manager.pending_reconfirmations), 1)
+
+        # sky_scout should be retracted
+        self.assertEqual(len(manager.model.query(subject="sky_scout")), 0)
+        # uav should be present
+        self.assertEqual(len(manager.model.query(subject="uav")), 1)
+
+        # Confirm the downstream turn
+        prompt = manager.step("y")
+        self.assertIn("Re-confirmed turn", prompt)
+        self.assertEqual(len(manager.pending_reconfirmations), 0)
+        self.assertEqual(len(manager.model.query(subject="sky_scout")), 1)
+
+    def test_amend_relations_and_instances_and_rejections(self):
+        manager = ElicitationManager()
+        self.assertIn("Decision Question", manager.prompt())
+        manager.handle_input("Testing Coverage")
+        manager.handle_input("done")
+
+        # Invalid class format
+        inv_cls = manager.handle_input("just_one_token")
+        self.assertIn("Invalid class format", inv_cls)
+
+        # Class: vehicle subclass_of entity
+        manager.handle_input("vehicle subclass_of entity")
+        manager.handle_input("y")
+        manager.handle_input("done")
+
+        # Invalid relation
+        inv_rel = manager.handle_input("has_engine invalid_param")
+        self.assertIn("No valid", inv_rel)
+
+        # Valid relation
+        manager.handle_input("drives domain=person range=vehicle acyclic=true")
+        manager.handle_input("y")
+        rel_turn_id = manager.turns[-1].turn_id
+
+        # Amend relation turn
+        amend_rel = manager.amend_turn(rel_turn_id, "operates domain=operator range=vehicle acyclic=true")
+        self.assertIn("retracted", amend_rel.lower())
+
+        manager.handle_input("done")  # Skip to instances
+
+        # Invalid instance
+        inv_inst = manager.handle_input("single_token_inst")
+        self.assertIn("Invalid instance", inv_inst)
+
+        # Instance turn
+        manager.handle_input("truck1 instance_of vehicle [wheels=6]")
+        manager.handle_input("y")
+        inst_turn_id = manager.turns[-1].turn_id
+
+        # Amend instance turn
+        amend_inst = manager.amend_turn(inst_turn_id, "truck1 instance_of vehicle [wheels=8]")
+        self.assertIn("truck1 instance_of vehicle", amend_inst)
+
+        # Downstream rejection in amendment
+        manager.handle_input("truck1 instance_of vehicle")
+        # Reject confirmation
+        manager.handle_input("n")
+        self.assertIn("discarded", manager.prompt().lower())
+
+        # Finish
+        final = manager.handle_input("done")
+        self.assertIn("Elicitation completed", final)
+
 
 
 if __name__ == "__main__":

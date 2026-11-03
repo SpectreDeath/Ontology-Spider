@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ontology-spider"
-version = "0.1.0"
+version = "0.2.0"
 description = "A standalone ontological engine with Prolog reasoning and Dialog conversational query and elicitation."
 readme = "README.md"
 authors = [

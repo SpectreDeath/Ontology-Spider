@@ -141,12 +141,17 @@ class OntologyModel:
         self.uri = uri
         self._entities: dict[str, Entity] = {}
         self._assertions: dict[str, Assertion] = {}
+        self._version: int = 0
 
         # Indices
         self._by_subject: dict[str, set[str]] = {}
         self._by_predicate: dict[str, set[str]] = {}
         self._by_object: dict[str, set[str]] = {}
         self._by_turn: dict[str, set[str]] = {}
+
+    @property
+    def version(self) -> int:
+        return self._version
 
     @property
     def entities(self) -> dict[str, Entity]:
@@ -159,6 +164,7 @@ class OntologyModel:
     def add_entity(self, entity: Entity) -> None:
         """Register or update an entity."""
         self._entities[entity.id] = entity
+        self._version += 1
 
     def get_entity(self, entity_id: str) -> Optional[Entity]:
         return self._entities.get(entity_id)
@@ -195,6 +201,7 @@ class OntologyModel:
         if provenance.turn_id:
             self._by_turn.setdefault(provenance.turn_id, set()).add(aid)
 
+        self._version += 1
         return asrt
 
     def retract_assertion(self, assertion_id: str) -> Optional[Assertion]:
@@ -203,6 +210,7 @@ class OntologyModel:
         if not asrt:
             return None
 
+        self._version += 1
         rel = asrt.relation
         if rel.subject in self._by_subject:
             self._by_subject[rel.subject].discard(assertion_id)

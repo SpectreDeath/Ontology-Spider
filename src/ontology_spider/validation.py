@@ -146,17 +146,41 @@ class OntologyValidator:
                         )
 
         # 3. Disjointness check
+        def get_assertions_to_ancestor(start: str, target: str) -> list[str]:
+            if start == target:
+                return []
+            queue: list[tuple[str, list[str]]] = [(start, [])]
+            visited: set[str] = {start}
+            while queue:
+                curr, path_aids = queue.pop(0)
+                if curr == target:
+                    return path_aids
+                for a in model.query(subject=curr):
+                    if a.relation.predicate in (INSTANCE_OF, SUBCLASS_OF):
+                        nxt = a.relation.object
+                        if nxt not in visited:
+                            visited.add(nxt)
+                            queue.append((nxt, path_aids + [a.assertion_id]))
+            return []
+
         for asrt in model.query(predicate=DISJOINT_WITH):
             c1 = asrt.relation.subject
             c2 = asrt.relation.object
             for ent_id in model.entities:
                 ent_types = get_types(ent_id)
                 if c1 in ent_types and c2 in ent_types:
-                    # Find instance assertions for ent_id
-                    inst_ids = [
-                        a.assertion_id
-                        for a in model.query(subject=ent_id, predicate=INSTANCE_OF)
-                    ]
+                    path1_aids = get_assertions_to_ancestor(ent_id, c1)
+                    path2_aids = get_assertions_to_ancestor(ent_id, c2)
+                    offending = [asrt.assertion_id]
+                    for aid in path1_aids + path2_aids:
+                        if aid not in offending:
+                            offending.append(aid)
+                    # If paths didn't find aids (e.g. orphan), fall back to instance_of
+                    if len(offending) == 1:
+                        for a in model.query(subject=ent_id, predicate=INSTANCE_OF):
+                            if a.assertion_id not in offending:
+                                offending.append(a.assertion_id)
+
                     violations.append(
                         Violation(
                             check_type="disjointness_violation",
@@ -164,12 +188,12 @@ class OntologyValidator:
                                 f"Entity '{ent_id}' is asserted as both '{c1}' and '{c2}', "
                                 f"which are declared disjoint."
                             ),
-                            offending_assertion_ids=[asrt.assertion_id] + inst_ids,
+                            offending_assertion_ids=offending,
                         )
                     )
 
-        # 4. Cycle detection on relations declared acyclic
-        acyclic_preds = {
+        # 4. Cycle detection on relations declared acyclic (and subclass_of intrinsically)
+        acyclic_preds = {SUBCLASS_OF} | {
             a.relation.subject
             for a in model.query(predicate=ACYCLIC)
             if a.relation.object.lower() in ("true", "yes", "1")
@@ -183,36 +207,37 @@ class OntologyValidator:
                     (asrt.relation.object, asrt.assertion_id)
                 )
 
-            # Detect cycle using DFS
-            visited_global: set[str] = set()
+            seen_cycles: set[frozenset[str]] = set()
 
-            def dfs(node: str, path: list[str], edges: list[str]) -> Optional[list[str]]:
+            def dfs(node: str, path: list[str], edges: list[str], visited_in_path: set[str]) -> None:
                 if node in path:
                     cycle_start = path.index(node)
-                    return edges[cycle_start:]
-                if node in visited_global:
-                    return None
+                    cycle_aids = edges[cycle_start:]
+                    cycle_key = frozenset(cycle_aids)
+                    if cycle_key not in seen_cycles:
+                        seen_cycles.add(cycle_key)
+                        violations.append(
+                            Violation(
+                                check_type="cycle_violation",
+                                message=f"Directed cycle detected in relation '{pred}' declared acyclic.",
+                                offending_assertion_ids=cycle_aids,
+                            )
+                        )
+                    return
 
-                path.append(node)
-                visited_global.add(node)
+                if node in visited_in_path:
+                    return
+
+                new_visited = set(visited_in_path)
+                new_visited.add(node)
+                new_path = list(path) + [node]
 
                 for next_node, aid in graph.get(node, []):
-                    cycle_edges = dfs(next_node, list(path), edges + [aid])
-                    if cycle_edges:
-                        return cycle_edges
-                return None
+                    dfs(next_node, new_path, edges + [aid], new_visited)
 
             for start_node in graph:
-                cycle_aids = dfs(start_node, [], [])
-                if cycle_aids:
-                    violations.append(
-                        Violation(
-                            check_type="cycle_violation",
-                            message=f"Directed cycle detected in relation '{pred}' declared acyclic.",
-                            offending_assertion_ids=cycle_aids,
-                        )
-                    )
-                    break
+                dfs(start_node, [], [], set())
+
 
         # 5. Assumption checks
         for assumption in self.assumptions:

@@ -6,15 +6,17 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from ontology_spider.dialog import parse_dialog
+from ontology_spider.dialog import _parse_attributes, parse_dialog
 from ontology_spider.dialog_runner import DialogSession
 from ontology_spider.model import (
     ACYCLIC,
+    DISJOINT_WITH,
     DOMAIN,
     INSTANCE_OF,
     RANGE,
     SUBCLASS_OF,
     Assertion,
+    Entity,
     OntologyModel,
     Provenance,
     Relation,
@@ -39,8 +41,10 @@ class ElicitedTurn:
     prompt: str
     user_response: str = ""
     proposed_assertions: list[Assertion] = field(default_factory=list)
+    proposed_entities: dict[str, dict[str, Any]] = field(default_factory=dict)
     depends_on_turn_ids: list[str] = field(default_factory=list)
     confirmed: bool = False
+    phase: Optional[ElicitationState] = None
 
 
 class ElicitationManager:
@@ -58,8 +62,30 @@ class ElicitationManager:
         self.competency_queries: list[str] = []
         self.turns: list[ElicitedTurn] = []
         self.pending_turn: Optional[ElicitedTurn] = None
+        self.pending_reconfirmations: list[ElicitedTurn] = []
         self.validation_hook = validation_hook
         self._turn_counter = 0
+        self._symbol_turn_map: dict[str, str] = {}
+        self.current_prompt: str = ""
+        self.start()
+
+    @property
+    def stage(self) -> ElicitationState:
+        return self.state
+
+    def prompt(self) -> str:
+        """Return the current prompt string for the user."""
+        if self.pending_reconfirmations:
+            return self.current_prompt
+        if self.pending_turn:
+            return self.pending_turn.prompt
+        if self.current_prompt:
+            return self.current_prompt
+        return ""
+
+    def handle_input(self, user_input: str) -> str:
+        """Process user input against current state."""
+        return self.step(user_input)
 
     def _next_turn_id(self) -> str:
         self._turn_counter += 1
@@ -68,16 +94,55 @@ class ElicitationManager:
     def start(self) -> str:
         """Start the elicitation dialogue."""
         prompt = "What domain or topic is this ontology about? (Decision Question)"
-        self.pending_turn = ElicitedTurn(
-            turn_id=self._next_turn_id(),
-            state=ElicitationState.DECISION_QUESTION,
-            prompt=prompt,
-        )
+        if not self.pending_turn:
+            self.pending_turn = ElicitedTurn(
+                turn_id=self._next_turn_id(),
+                state=ElicitationState.DECISION_QUESTION,
+                prompt=prompt,
+                phase=ElicitationState.DECISION_QUESTION,
+            )
+        self.current_prompt = prompt
         return prompt
 
     def step(self, user_input: str) -> str:
         """Process user input against current state."""
         clean = user_input.strip()
+
+        # Handle pending re-confirmations from earlier amendments first
+        if self.pending_reconfirmations:
+            reconf_turn = self.pending_reconfirmations.pop(0)
+            if clean.lower() in ("y", "yes", "confirm"):
+                reconf_turn.confirmed = True
+                for ent_id, ent_attrs in reconf_turn.proposed_entities.items():
+                    existing = self.model.get_entity(ent_id)
+                    if existing:
+                        existing.attributes.update(ent_attrs)
+                    else:
+                        self.model.add_entity(Entity(id=ent_id, attributes=dict(ent_attrs)))
+                for asrt in reconf_turn.proposed_assertions:
+                    self.model.add_assertion(
+                        relation=asrt.relation,
+                        provenance=asrt.provenance,
+                        assertion_id=asrt.assertion_id,
+                        attributes=asrt.attributes,
+                    )
+                msg = f"Re-confirmed turn '{reconf_turn.turn_id}'."
+            else:
+                self.turns = [t for t in self.turns if t.turn_id != reconf_turn.turn_id]
+                msg = f"Turn '{reconf_turn.turn_id}' discarded."
+
+            if self.pending_reconfirmations:
+                next_turn = self.pending_reconfirmations[0]
+                self.current_prompt = (
+                    f"{msg} Confirm next downstream turn '{next_turn.turn_id}': "
+                    f"'{next_turn.user_response}'? (y/n)"
+                )
+                return self.current_prompt
+            else:
+                self.current_prompt = (
+                    f"{msg} All re-confirmations resolved. Continuing in {self.state.value}."
+                )
+                return self.current_prompt
 
         if self.state == ElicitationState.DECISION_QUESTION:
             self.scope_description = clean
@@ -96,25 +161,31 @@ class ElicitationManager:
                 turn_id=self._next_turn_id(),
                 state=ElicitationState.COMPETENCY_QUESTIONS,
                 prompt=prompt,
+                phase=ElicitationState.COMPETENCY_QUESTIONS,
             )
+            self.current_prompt = prompt
             return prompt
 
         if self.state == ElicitationState.COMPETENCY_QUESTIONS:
             if clean.lower() in ("done", "none", "skip"):
                 self.state = ElicitationState.ELICIT_CLASSES
                 prompt = (
-                    "Enter class hierarchies (e.g. 'cat subclass_of mammal' or 'done'):"
+                    "Enter class hierarchies (e.g. 'cat subclass_of mammal', "
+                    "'air_vehicle disjoint_with ground_vehicle' or 'done'):"
                 )
                 self.pending_turn = ElicitedTurn(
                     turn_id=self._next_turn_id(),
                     state=ElicitationState.ELICIT_CLASSES,
                     prompt=prompt,
+                    phase=ElicitationState.ELICIT_CLASSES,
                 )
+                self.current_prompt = prompt
                 return prompt
 
             # Record competency question
             self.competency_queries.append(clean)
-            return "Competency query recorded. Enter another or 'done':"
+            self.current_prompt = "Competency query recorded. Enter another or 'done':"
+            return self.current_prompt
 
         if self.state == ElicitationState.ELICIT_CLASSES:
             if clean.lower() in ("done", "skip"):
@@ -127,10 +198,12 @@ class ElicitationManager:
                     turn_id=self._next_turn_id(),
                     state=ElicitationState.ELICIT_RELATIONS,
                     prompt=prompt,
+                    phase=ElicitationState.ELICIT_RELATIONS,
                 )
+                self.current_prompt = prompt
                 return prompt
 
-            # Parse class assertion: <subclass> subclass_of <superclass>
+            # Parse class assertion: <subclass> subclass_of <superclass> OR <c1> disjoint_with <c2>
             tokens = clean.split()
             if len(tokens) == 3 and tokens[1] == "subclass_of":
                 sub, _, sup = tokens
@@ -141,29 +214,70 @@ class ElicitationManager:
                     relation=Relation(sub, SUBCLASS_OF, sup),
                     provenance=prov,
                 )
+                deps = []
+                if sup in self._symbol_turn_map:
+                    deps.append(self._symbol_turn_map[sup])
+
                 self.pending_turn = ElicitedTurn(
                     turn_id=turn_id,
                     state=ElicitationState.CONFIRMATION,
                     prompt=f"Please confirm: assert ({sub} subclass_of {sup})? (y/n)",
                     user_response=clean,
                     proposed_assertions=[asrt],
+                    depends_on_turn_ids=deps,
+                    phase=ElicitationState.ELICIT_CLASSES,
                 )
                 self.state = ElicitationState.CONFIRMATION
-                return self.pending_turn.prompt
+                self.current_prompt = self.pending_turn.prompt
+                return self.current_prompt
+            elif len(tokens) == 3 and tokens[1] == "disjoint_with":
+                c1, _, c2 = tokens
+                turn_id = self._next_turn_id()
+                prov = Provenance(source="elicitation", turn_id=turn_id)
+                asrt = Assertion(
+                    assertion_id=f"asrt_{turn_id}",
+                    relation=Relation(c1, DISJOINT_WITH, c2),
+                    provenance=prov,
+                )
+                deps = []
+                if c1 in self._symbol_turn_map:
+                    deps.append(self._symbol_turn_map[c1])
+                if c2 in self._symbol_turn_map and self._symbol_turn_map[c2] not in deps:
+                    deps.append(self._symbol_turn_map[c2])
+
+                self.pending_turn = ElicitedTurn(
+                    turn_id=turn_id,
+                    state=ElicitationState.CONFIRMATION,
+                    prompt=f"Please confirm: assert ({c1} disjoint_with {c2})? (y/n)",
+                    user_response=clean,
+                    proposed_assertions=[asrt],
+                    depends_on_turn_ids=deps,
+                    phase=ElicitationState.ELICIT_CLASSES,
+                )
+                self.state = ElicitationState.CONFIRMATION
+                self.current_prompt = self.pending_turn.prompt
+                return self.current_prompt
             else:
-                return "Invalid class format. Expected: '<child> subclass_of <parent>' or 'done'."
+                self.current_prompt = (
+                    "Invalid class format. Expected: '<child> subclass_of <parent>', "
+                    "'<c1> disjoint_with <c2>', or 'done'."
+                )
+                return self.current_prompt
 
         if self.state == ElicitationState.ELICIT_RELATIONS:
             if clean.lower() in ("done", "skip"):
                 self.state = ElicitationState.ELICIT_INSTANCES
                 prompt = (
-                    "Enter instances (e.g. 'felix instance_of cat' or 'done'):"
+                    "Enter instances (e.g. 'felix instance_of cat [color=black]', "
+                    "'felix eats fish' or 'done'):"
                 )
                 self.pending_turn = ElicitedTurn(
                     turn_id=self._next_turn_id(),
                     state=ElicitationState.ELICIT_INSTANCES,
                     prompt=prompt,
+                    phase=ElicitationState.ELICIT_INSTANCES,
                 )
+                self.current_prompt = prompt
                 return prompt
 
             # Parse relation schema declarations: <rel> domain=<X> range=<Y> [acyclic=true]
@@ -172,10 +286,13 @@ class ElicitationManager:
             turn_id = self._next_turn_id()
             prov = Provenance(source="elicitation", turn_id=turn_id)
             proposed: list[Assertion] = []
+            deps = []
 
             for param in tokens[1:]:
                 if param.startswith("domain="):
                     d_val = param.split("=", 1)[1]
+                    if d_val in self._symbol_turn_map and self._symbol_turn_map[d_val] not in deps:
+                        deps.append(self._symbol_turn_map[d_val])
                     proposed.append(
                         Assertion(
                             assertion_id=f"asrt_{turn_id}_dom",
@@ -185,6 +302,8 @@ class ElicitationManager:
                     )
                 elif param.startswith("range="):
                     r_val = param.split("=", 1)[1]
+                    if r_val in self._symbol_turn_map and self._symbol_turn_map[r_val] not in deps:
+                        deps.append(self._symbol_turn_map[r_val])
                     proposed.append(
                         Assertion(
                             assertion_id=f"asrt_{turn_id}_rng",
@@ -202,7 +321,11 @@ class ElicitationManager:
                     )
 
             if not proposed:
-                return "No valid domain/range/acyclic specs found. Format: '<rel> domain=<D> range=<R>' or 'done'."
+                self.current_prompt = (
+                    "No valid domain/range/acyclic specs found. "
+                    "Format: '<rel> domain=<D> range=<R>' or 'done'."
+                )
+                return self.current_prompt
 
             self.pending_turn = ElicitedTurn(
                 turn_id=turn_id,
@@ -210,16 +333,31 @@ class ElicitationManager:
                 prompt=f"Please confirm {len(proposed)} relation properties for '{rel_name}'? (y/n)",
                 user_response=clean,
                 proposed_assertions=proposed,
+                depends_on_turn_ids=deps,
+                phase=ElicitationState.ELICIT_RELATIONS,
             )
             self.state = ElicitationState.CONFIRMATION
-            return self.pending_turn.prompt
+            self.current_prompt = self.pending_turn.prompt
+            return self.current_prompt
 
         if self.state == ElicitationState.ELICIT_INSTANCES:
             if clean.lower() in ("done", "skip"):
                 self.state = ElicitationState.COMPLETED
                 return self._finalize_elicitation()
 
-            tokens = clean.split()
+            # Parse optional bracketed attributes [k=v, ...]
+            attrs: dict[str, Any] = {}
+            core_line = clean
+            if "[" in clean and clean.endswith("]"):
+                bracket_idx = clean.find("[")
+                attr_str = clean[bracket_idx:]
+                core_line = clean[:bracket_idx].strip()
+                try:
+                    attrs = _parse_attributes(attr_str, 0)
+                except Exception:
+                    attrs = {}
+
+            tokens = core_line.split()
             if len(tokens) == 3 and tokens[1] in (INSTANCE_OF, "instance_of"):
                 inst, _, cls_name = tokens
                 turn_id = self._next_turn_id()
@@ -228,18 +366,30 @@ class ElicitationManager:
                     assertion_id=f"asrt_{turn_id}",
                     relation=Relation(inst, INSTANCE_OF, cls_name),
                     provenance=prov,
+                    attributes=attrs,
                 )
+                deps = []
+                if cls_name in self._symbol_turn_map:
+                    deps.append(self._symbol_turn_map[cls_name])
+
+                proposed_entities = {}
+                if attrs:
+                    proposed_entities[inst] = attrs
+
                 self.pending_turn = ElicitedTurn(
                     turn_id=turn_id,
                     state=ElicitationState.CONFIRMATION,
                     prompt=f"Please confirm: assert ({inst} instance_of {cls_name})? (y/n)",
                     user_response=clean,
                     proposed_assertions=[asrt],
+                    proposed_entities=proposed_entities,
+                    depends_on_turn_ids=deps,
+                    phase=ElicitationState.ELICIT_INSTANCES,
                 )
                 self.state = ElicitationState.CONFIRMATION
-                return self.pending_turn.prompt
+                self.current_prompt = self.pending_turn.prompt
+                return self.current_prompt
             elif len(tokens) == 3:
-                # Custom instance relation assertion
                 s, p, o = tokens
                 turn_id = self._next_turn_id()
                 prov = Provenance(source="elicitation", turn_id=turn_id)
@@ -247,23 +397,43 @@ class ElicitationManager:
                     assertion_id=f"asrt_{turn_id}",
                     relation=Relation(s, p, o),
                     provenance=prov,
+                    attributes=attrs,
                 )
+                deps = []
+                for sym in (s, p, o):
+                    if sym in self._symbol_turn_map and self._symbol_turn_map[sym] not in deps:
+                        deps.append(self._symbol_turn_map[sym])
+
                 self.pending_turn = ElicitedTurn(
                     turn_id=turn_id,
                     state=ElicitationState.CONFIRMATION,
                     prompt=f"Please confirm: assert ({s} {p} {o})? (y/n)",
                     user_response=clean,
                     proposed_assertions=[asrt],
+                    depends_on_turn_ids=deps,
+                    phase=ElicitationState.ELICIT_INSTANCES,
                 )
                 self.state = ElicitationState.CONFIRMATION
-                return self.pending_turn.prompt
+                self.current_prompt = self.pending_turn.prompt
+                return self.current_prompt
             else:
-                return "Invalid instance assertion. Expected '<item> instance_of <class>' or '<s p o>' or 'done'."
+                self.current_prompt = (
+                    "Invalid instance assertion. Expected '<item> instance_of <class> [k=v]' "
+                    "or '<s p o> [k=v]' or 'done'."
+                )
+                return self.current_prompt
 
         if self.state == ElicitationState.CONFIRMATION:
             if clean.lower() in ("y", "yes", "confirm"):
                 if self.pending_turn:
                     self.pending_turn.confirmed = True
+                    for ent_id, ent_attrs in self.pending_turn.proposed_entities.items():
+                        existing = self.model.get_entity(ent_id)
+                        if existing:
+                            existing.attributes.update(ent_attrs)
+                        else:
+                            self.model.add_entity(Entity(id=ent_id, attributes=dict(ent_attrs)))
+
                     for asrt in self.pending_turn.proposed_assertions:
                         self.model.add_assertion(
                             relation=asrt.relation,
@@ -271,28 +441,42 @@ class ElicitationManager:
                             assertion_id=asrt.assertion_id,
                             attributes=asrt.attributes,
                         )
+                        # Register symbols
+                        rel = asrt.relation
+                        if rel.predicate in (SUBCLASS_OF, DISJOINT_WITH):
+                            self._symbol_turn_map.setdefault(rel.subject, self.pending_turn.turn_id)
+                            self._symbol_turn_map.setdefault(rel.object, self.pending_turn.turn_id)
+                        elif rel.predicate in (DOMAIN, RANGE, ACYCLIC):
+                            self._symbol_turn_map.setdefault(rel.subject, self.pending_turn.turn_id)
+                        elif rel.predicate == INSTANCE_OF:
+                            self._symbol_turn_map.setdefault(rel.subject, self.pending_turn.turn_id)
+                        else:
+                            self._symbol_turn_map.setdefault(rel.predicate, self.pending_turn.turn_id)
+
                     self.turns.append(self.pending_turn)
 
-                # Return to previous elicitation category
                 prev_state = self._determine_next_state_after_confirmation()
                 self.state = prev_state
-                return f"Confirmed and landed in model. Enter next or 'done':"
+                self.pending_turn = None
+                self.current_prompt = "Confirmed and landed in model. Enter next or 'done':"
+                return self.current_prompt
             else:
-                # Discard unconfirmed assertions
                 rejected_id = self.pending_turn.turn_id if self.pending_turn else "unknown"
                 prev_state = self._determine_next_state_after_confirmation()
                 self.state = prev_state
                 self.pending_turn = None
-                return f"Turn {rejected_id} discarded (not confirmed). Enter next or 'done':"
+                self.current_prompt = f"Turn {rejected_id} discarded (not confirmed). Enter next or 'done':"
+                return self.current_prompt
 
         return "Elicitation completed."
 
     def _determine_next_state_after_confirmation(self) -> ElicitationState:
-        # Check what we were eliciting based on proposed assertions
+        if self.pending_turn and self.pending_turn.phase:
+            return self.pending_turn.phase
         if not self.pending_turn or not self.pending_turn.proposed_assertions:
             return ElicitationState.ELICIT_INSTANCES
         first_rel = self.pending_turn.proposed_assertions[0].relation.predicate
-        if first_rel == SUBCLASS_OF:
+        if first_rel in (SUBCLASS_OF, DISJOINT_WITH):
             return ElicitationState.ELICIT_CLASSES
         if first_rel in (DOMAIN, RANGE, ACYCLIC):
             return ElicitationState.ELICIT_RELATIONS
@@ -307,19 +491,158 @@ class ElicitationManager:
         # Retract target assertions from model
         retracted = self.model.retract_by_turn_id(turn_id)
 
-        # Retract any downstream dependent turns
-        downstream = [
-            t for t in self.turns if turn_id in t.depends_on_turn_ids and t.confirmed
-        ]
-        for dt in downstream:
+        # Transitive dependents calculation
+        invalidated: list[ElicitedTurn] = []
+        queue = [turn_id]
+        seen_ids = set()
+        while queue:
+            curr_id = queue.pop(0)
+            for t in self.turns:
+                if curr_id in t.depends_on_turn_ids and t.turn_id not in seen_ids and t.turn_id != turn_id:
+                    seen_ids.add(t.turn_id)
+                    invalidated.append(t)
+                    queue.append(t.turn_id)
+
+        turn_order = {t.turn_id: idx for idx, t in enumerate(self.turns)}
+        invalidated.sort(key=lambda t: turn_order.get(t.turn_id, 0))
+
+        for dt in invalidated:
             retracted.extend(self.model.retract_by_turn_id(dt.turn_id))
             dt.confirmed = False
 
-        # Remove target turn from confirmed turns
-        self.turns = [t for t in self.turns if t.turn_id != turn_id]
+        # Parse new input and apply to target_turn
+        prov = Provenance(source="elicitation", turn_id=turn_id)
+        phase = target_turn.phase or ElicitationState.ELICIT_CLASSES
+        applied_msg = ""
 
-        # Re-enter elicitation with the new input
-        return f"Amended {turn_id}: retracted {len(retracted)} assertions. Re-processing amendment."
+        if phase == ElicitationState.ELICIT_CLASSES:
+            tokens = new_input.strip().split()
+            if len(tokens) == 3 and tokens[1] == "subclass_of":
+                sub, _, sup = tokens
+                asrt = Assertion(
+                    assertion_id=f"asrt_{turn_id}",
+                    relation=Relation(sub, SUBCLASS_OF, sup),
+                    provenance=prov,
+                )
+                target_turn.proposed_assertions = [asrt]
+                target_turn.user_response = new_input
+                target_turn.confirmed = True
+                self.model.add_assertion(
+                    relation=asrt.relation,
+                    provenance=asrt.provenance,
+                    assertion_id=asrt.assertion_id,
+                )
+                self._symbol_turn_map.setdefault(sub, turn_id)
+                self._symbol_turn_map.setdefault(sup, turn_id)
+                applied_msg = f"Applied replacement class hierarchy: ({sub} subclass_of {sup})."
+            elif len(tokens) == 3 and tokens[1] == "disjoint_with":
+                c1, _, c2 = tokens
+                asrt = Assertion(
+                    assertion_id=f"asrt_{turn_id}",
+                    relation=Relation(c1, DISJOINT_WITH, c2),
+                    provenance=prov,
+                )
+                target_turn.proposed_assertions = [asrt]
+                target_turn.user_response = new_input
+                target_turn.confirmed = True
+                self.model.add_assertion(
+                    relation=asrt.relation,
+                    provenance=asrt.provenance,
+                    assertion_id=asrt.assertion_id,
+                )
+                self._symbol_turn_map.setdefault(c1, turn_id)
+                self._symbol_turn_map.setdefault(c2, turn_id)
+                applied_msg = f"Applied replacement disjointness: ({c1} disjoint_with {c2})."
+
+        elif phase == ElicitationState.ELICIT_RELATIONS:
+            tokens = new_input.strip().split()
+            rel_name = tokens[0]
+            new_asrts = []
+            for param in tokens[1:]:
+                if param.startswith("domain="):
+                    d_val = param.split("=", 1)[1]
+                    new_asrts.append(
+                        Assertion(
+                            assertion_id=f"asrt_{turn_id}_dom",
+                            relation=Relation(rel_name, DOMAIN, d_val),
+                            provenance=prov,
+                        )
+                    )
+                elif param.startswith("range="):
+                    r_val = param.split("=", 1)[1]
+                    new_asrts.append(
+                        Assertion(
+                            assertion_id=f"asrt_{turn_id}_rng",
+                            relation=Relation(rel_name, RANGE, r_val),
+                            provenance=prov,
+                        )
+                    )
+                elif param.lower() == "acyclic=true":
+                    new_asrts.append(
+                        Assertion(
+                            assertion_id=f"asrt_{turn_id}_acy",
+                            relation=Relation(rel_name, ACYCLIC, "true"),
+                            provenance=prov,
+                        )
+                    )
+            target_turn.proposed_assertions = new_asrts
+            target_turn.user_response = new_input
+            target_turn.confirmed = True
+            for a in new_asrts:
+                self.model.add_assertion(
+                    relation=a.relation,
+                    provenance=a.provenance,
+                    assertion_id=a.assertion_id,
+                )
+            self._symbol_turn_map.setdefault(rel_name, turn_id)
+            applied_msg = f"Applied replacement relation schema for '{rel_name}'."
+
+        elif phase == ElicitationState.ELICIT_INSTANCES:
+            clean = new_input.strip()
+            attrs: dict[str, Any] = {}
+            core_line = clean
+            if "[" in clean and clean.endswith("]"):
+                b_idx = clean.find("[")
+                attr_str = clean[b_idx:]
+                core_line = clean[:b_idx].strip()
+                try:
+                    attrs = _parse_attributes(attr_str, 0)
+                except Exception:
+                    attrs = {}
+            tokens = core_line.split()
+            if len(tokens) == 3 and tokens[1] in (INSTANCE_OF, "instance_of"):
+                inst, _, cls_name = tokens
+                asrt = Assertion(
+                    assertion_id=f"asrt_{turn_id}",
+                    relation=Relation(inst, INSTANCE_OF, cls_name),
+                    provenance=prov,
+                    attributes=attrs,
+                )
+                target_turn.proposed_assertions = [asrt]
+                target_turn.proposed_entities = {inst: attrs} if attrs else {}
+                target_turn.user_response = new_input
+                target_turn.confirmed = True
+                if attrs:
+                    self.model.add_entity(Entity(id=inst, attributes=dict(attrs)))
+                self.model.add_assertion(
+                    relation=asrt.relation,
+                    provenance=asrt.provenance,
+                    assertion_id=asrt.assertion_id,
+                    attributes=asrt.attributes,
+                )
+                self._symbol_turn_map.setdefault(inst, turn_id)
+                applied_msg = f"Applied replacement instance assertion: ({inst} instance_of {cls_name})."
+
+        self.pending_reconfirmations = list(invalidated)
+        base_msg = f"Amended {turn_id}: retracted {len(retracted)} assertions. {applied_msg}".strip()
+        if self.pending_reconfirmations:
+            next_t = self.pending_reconfirmations[0]
+            self.current_prompt = (
+                f"{base_msg} Re-confirmation required: confirm downstream turn "
+                f"'{next_t.turn_id}' ('{next_t.user_response}')? (y/n)"
+            )
+            return self.current_prompt
+        return base_msg
 
     def _finalize_elicitation(self) -> str:
         summary_lines = [
@@ -337,7 +660,8 @@ class ElicitationManager:
             else:
                 summary_lines.append("Model integrity checks: passed (0 violations).")
 
-        return "\n".join(summary_lines)
+        self.current_prompt = "\n".join(summary_lines)
+        return self.current_prompt
 
     def run_competency_queries(self) -> list[dict[str, Any]]:
         """Run recorded competency queries against the completed model."""

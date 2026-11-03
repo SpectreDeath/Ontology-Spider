@@ -102,6 +102,43 @@ class TestValidation(unittest.TestCase):
         summary = manager._finalize_elicitation()
         self.assertIn("Model integrity checks", summary)
 
+    def test_subclass_of_intrinsic_acyclic_and_multi_cycle(self):
+        model = OntologyModel(uri="urn:test:intrinsic_acyclic")
+        p = Provenance(source="test")
+
+        # Cycle 1 in subclass_of: a -> b -> a (no explicit acyclic true assertion!)
+        a1 = model.add_assertion(Relation("a", SUBCLASS_OF, "b"), p)
+        a2 = model.add_assertion(Relation("b", SUBCLASS_OF, "a"), p)
+
+        # Cycle 2 in subclass_of: x -> y -> z -> x
+        x1 = model.add_assertion(Relation("x", SUBCLASS_OF, "y"), p)
+        x2 = model.add_assertion(Relation("y", SUBCLASS_OF, "z"), p)
+        x3 = model.add_assertion(Relation("z", SUBCLASS_OF, "x"), p)
+
+        violations = self.validator.validate(model)
+        cyc_viols = [v for v in violations if v.check_type == "cycle_violation"]
+        self.assertEqual(len(cyc_viols), 2)
+
+    def test_disjointness_with_subclass_hierarchy_provenance(self):
+        model = OntologyModel(uri="urn:test:disjoint_subclass")
+        p = Provenance(source="test")
+
+        # air_vehicle disjoint_with ground_vehicle
+        d_asrt = model.add_assertion(Relation("air_vehicle", DISJOINT_WITH, "ground_vehicle"), p)
+
+        # amphibious_drone is subclass of both
+        s1 = model.add_assertion(Relation("amphibious_drone", SUBCLASS_OF, "air_vehicle"), p)
+        s2 = model.add_assertion(Relation("amphibious_drone", SUBCLASS_OF, "ground_vehicle"), p)
+
+        violations = self.validator.validate(model)
+        dis_viols = [v for v in violations if v.check_type == "disjointness_violation"]
+        self.assertEqual(len(dis_viols), 1)
+        offending = dis_viols[0].offending_assertion_ids
+        self.assertIn(d_asrt.assertion_id, offending)
+        self.assertIn(s1.assertion_id, offending)
+        self.assertIn(s2.assertion_id, offending)
+
+
 
 if __name__ == "__main__":
     unittest.main()

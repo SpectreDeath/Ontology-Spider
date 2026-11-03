@@ -75,6 +75,30 @@ class TestTraversalDialogue(unittest.TestCase):
             [a.value for a in trav_res.answers],
         )
 
+    def test_frame_constraint_filtering_and_recommend(self):
+        manager = TraversalDialogueManager(model=self.model)
+        # Register a second electric car with different range
+        prov = Provenance(source="test_traversal")
+        self.model.add_assertion(Relation("bolt", INSTANCE_OF, "electric_car"), prov)
+        self.model.add_entity(Entity(id="bolt", attributes={"fuel": "electric", "range_km": 380}))
+        self.model.get_entity("leaf").attributes["range_km"] = 250
+
+        # Change constraint range_km=380 in root frame
+        manager.change_constraint("range_km", "380")
+
+        # Recommend electric_car
+        res = manager.query("query recommend electric_car")
+        self.assertEqual(len(res.answers), 1)
+        self.assertEqual(res.answers[0].value, "bolt")
+        self.assertIn("filtered_by_frame_constraints", res.answers[0].explanation.rules_fired)
+
+    def test_inline_explain_execution(self):
+        manager = TraversalDialogueManager(model=self.model)
+        res = manager.query("explain query ancestors of leaf")
+        self.assertEqual(res.statement_type, "explain")
+        self.assertIn("Answer #", res.summary_text)
+        self.assertIn("electric_car", res.summary_text)
+
 
 if __name__ == "__main__":
     unittest.main()

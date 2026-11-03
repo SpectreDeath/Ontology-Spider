@@ -7,7 +7,12 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Union
 
-from ontology_spider.dialog import DialogAssertion, DialogImport, parse_dialog
+from ontology_spider.dialog import (
+    DialogAssertion,
+    DialogEntityDecl,
+    DialogImport,
+    parse_dialog,
+)
 from ontology_spider.model import (
     Entity,
     OntologyModel,
@@ -100,12 +105,28 @@ class DialogModelSource(ModelSource):
                         attributes=asrt.attributes,
                     )
 
-        # Process assertions
+        # Process entities and assertions
         for idx, stmt in enumerate(doc.statements, start=1):
-            if isinstance(stmt, DialogAssertion):
+            if isinstance(stmt, DialogEntityDecl):
+                ent_attrs = dict(stmt.attributes)
+                name = ent_attrs.pop("name", None)
+                existing = model.get_entity(stmt.entity_id)
+                if existing:
+                    existing.attributes.update(ent_attrs)
+                    if name:
+                        existing.name = name
+                else:
+                    model.add_entity(
+                        Entity(id=stmt.entity_id, name=name, attributes=ent_attrs)
+                    )
+            elif isinstance(stmt, DialogAssertion):
+                attrs = dict(stmt.attributes)
+                aid = attrs.pop("_id", None)
+                src = attrs.pop("_source", source_label)
+                tid = attrs.pop("_turn", f"stmt_{idx}")
                 prov = Provenance(
-                    source=source_label,
-                    turn_id=f"stmt_{idx}",
+                    source=src,
+                    turn_id=tid,
                 )
                 model.add_assertion(
                     relation=Relation(
@@ -114,7 +135,8 @@ class DialogModelSource(ModelSource):
                         object=stmt.object,
                     ),
                     provenance=prov,
-                    attributes=stmt.attributes,
+                    assertion_id=aid,
+                    attributes=attrs,
                 )
 
         return model

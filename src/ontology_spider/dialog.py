@@ -34,6 +34,13 @@ class DialogImport:
 
 
 @dataclass(frozen=True)
+class DialogEntityDecl:
+    entity_id: str
+    attributes: dict[str, Any] = field(default_factory=dict)
+    line_num: int = 1
+
+
+@dataclass(frozen=True)
 class DialogAssertion:
     subject: str
     predicate: str
@@ -44,12 +51,13 @@ class DialogAssertion:
 
 @dataclass(frozen=True)
 class DialogQuery:
-    kind: str  # "lookup", "transitive", "ancestors", "pattern", "filter", "explain"
+    kind: str  # "lookup", "transitive", "ancestors", "pattern", "filter", "explain", "recommend"
     subject: Optional[str] = None
     predicate: Optional[str] = None
     object: Optional[str] = None
     filter_key: Optional[str] = None
     filter_val: Optional[str] = None
+    subquery: Optional[DialogQuery] = None
     raw_text: str = ""
     line_num: int = 1
 
@@ -58,9 +66,10 @@ class DialogQuery:
 class DialogDoc:
     uri: str
     imports: list[DialogImport] = field(default_factory=list)
-    statements: list[Union[DialogImport, DialogAssertion, DialogQuery]] = field(
-        default_factory=list
-    )
+    statements: list[
+        Union[DialogImport, DialogEntityDecl, DialogAssertion, DialogQuery]
+    ] = field(default_factory=list)
+
 
 
 def _parse_attributes(attr_str: str, line_num: int) -> dict[str, Any]:
@@ -138,6 +147,31 @@ def parse_dialog(text: str) -> DialogDoc:
             statements.append(imp)
             continue
 
+        # Entity statement: entity <id> [attr=val, ...]
+        if line.startswith("entity "):
+            body = line[7:].strip()
+            attrs: dict[str, Any] = {}
+            if "[" in body and body.endswith("]"):
+                main_part, attr_part = body.rsplit("[", 1)
+                attr_part = "[" + attr_part
+                attrs = _parse_attributes(attr_part, idx)
+                body = main_part.strip()
+            ent_id = body.strip()
+            if not ent_id:
+                raise ParseError(
+                    idx,
+                    "Entity statement missing entity id",
+                    "entity <id> [key=value, ...]",
+                )
+            statements.append(
+                DialogEntityDecl(
+                    entity_id=ent_id,
+                    attributes=attrs,
+                    line_num=idx,
+                )
+            )
+            continue
+
         # Assertion statement:
         # assert <subject> <predicate> <object> [attr=val, ...]
         if line.startswith("assert "):
@@ -167,11 +201,21 @@ def parse_dialog(text: str) -> DialogDoc:
             statements.append(asrt)
             continue
 
-        # Explain statement
+        # Explain statement: explain OR explain <query>
         if line == "explain" or line.startswith("explain "):
+            rest = line[7:].strip()
+            subquery = None
+            if rest:
+                sub_line = rest if rest.startswith("query ") else f"query {rest}"
+                sub_doc = parse_dialog(f"dialog {uri}\n{sub_line}")
+                for s in sub_doc.statements:
+                    if isinstance(s, DialogQuery):
+                        subquery = s
+                        break
             statements.append(
                 DialogQuery(
                     kind="explain",
+                    subquery=subquery,
                     raw_text=line,
                     line_num=idx,
                 )
@@ -181,8 +225,11 @@ def parse_dialog(text: str) -> DialogDoc:
         # Query statement:
         if line.startswith("query "):
             query_body = line[6:].strip()
-            # Normalize trailing question mark
-            clean_body = query_body.rstrip("?").strip()
+            # Normalize trailing question mark without stripping standalone wildcard '?'
+            if query_body.endswith("?") and not query_body.endswith(" ?"):
+                clean_body = query_body[:-1].strip()
+            else:
+                clean_body = query_body
 
             # Pattern 1: what is <X>
             m_what_is = re.match(r"^what\s+is\s+(\S+)$", clean_body, re.IGNORECASE)
@@ -245,6 +292,28 @@ def parse_dialog(text: str) -> DialogDoc:
                 )
                 continue
 
+            # Pattern 4b: recommend <Class> where <attr> = <val> OR recommend <Class>
+            m_rec = re.match(
+                r"^recommend\s+(\S+)(?:\s+where\s+(\S+)\s*=\s*(\S+))?$",
+                clean_body,
+                re.IGNORECASE,
+            )
+            if m_rec:
+                statements.append(
+                    DialogQuery(
+                        kind="recommend",
+                        object=m_rec.group(1),
+                        filter_key=m_rec.group(2) if m_rec.group(2) else None,
+                        filter_val=m_rec.group(3).strip('"').strip("'")
+                        if m_rec.group(3)
+                        else None,
+                        raw_text=line,
+                        line_num=idx,
+                    )
+                )
+                continue
+
+
             # Pattern 5: general triple pattern query: <subject> <predicate> <object>
             q_tokens = clean_body.split()
             if len(q_tokens) == 3:
@@ -271,7 +340,7 @@ def parse_dialog(text: str) -> DialogDoc:
         raise ParseError(
             idx,
             f"Unexpected statement: '{line}'",
-            "dialog <URI> | import <path> | assert <S> <P> <O> | query <form> | explain",
+            "dialog <URI> | import <path> | entity <id> [attrs] | assert <S> <P> <O> | query <form> | explain",
         )
 
     return DialogDoc(uri=uri, imports=imports, statements=statements)

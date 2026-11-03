@@ -4,7 +4,7 @@ import ontology_spider
 
 class TestSkeleton(unittest.TestCase):
     def test_package_version(self):
-        self.assertEqual(ontology_spider.__version__, "0.1.0")
+        self.assertEqual(ontology_spider.__version__, "0.2.0")
 
 
 if __name__ == "__main__":

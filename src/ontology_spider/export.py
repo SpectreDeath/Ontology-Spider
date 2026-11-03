@@ -23,9 +23,12 @@ def to_dialog(model: OntologyModel) -> str:
     ]
 
     for ent in model.entities.values():
-        if ent.attributes:
-            attrs_str = ", ".join(f"{k}={v}" for k, v in ent.attributes.items())
-            lines.append(f"# Entity {ent.id} [{attrs_str}]")
+        attrs = dict(ent.attributes)
+        if ent.name and "name" not in attrs:
+            attrs["name"] = ent.name
+        if attrs:
+            attrs_str = ", ".join(f"{k}={v}" for k, v in attrs.items())
+            lines.append(f"entity {ent.id} [{attrs_str}]")
 
     lines.append("")
     lines.append("# Assertions")
@@ -33,13 +36,21 @@ def to_dialog(model: OntologyModel) -> str:
     for asrt in model.assertions.values():
         rel = asrt.relation
         line = f"assert {rel.subject} {rel.predicate} {rel.object}"
-        if asrt.attributes:
-            attr_parts = [f"{k}={v}" for k, v in asrt.attributes.items()]
+        attrs = dict(asrt.attributes)
+        if asrt.assertion_id:
+            attrs["_id"] = asrt.assertion_id
+        if asrt.provenance.source:
+            attrs["_source"] = asrt.provenance.source
+        if asrt.provenance.turn_id:
+            attrs["_turn"] = asrt.provenance.turn_id
+        if attrs:
+            attr_parts = [f"{k}={v}" for k, v in attrs.items()]
             line += f" [{', '.join(attr_parts)}]"
         lines.append(line)
 
     lines.append("")
     return "\n".join(lines)
+
 
 
 def to_dot(model: OntologyModel) -> str:

@@ -114,19 +114,60 @@ class TraversalDialogueManager:
         stmt = doc.statements[0]
         if isinstance(stmt, DialogQuery):
             # If query lacks subject but frame has focus entity, inherit it
-            if not stmt.subject and self.current_frame.focus_entity:
-                stmt = DialogQuery(
-                    kind=stmt.kind,
-                    subject=self.current_frame.focus_entity,
-                    predicate=stmt.predicate,
-                    object=stmt.object,
-                    filter_key=stmt.filter_key,
-                    filter_val=stmt.filter_val,
-                    raw_text=stmt.raw_text,
-                    line_num=stmt.line_num,
-                )
+            subj = stmt.subject or self.current_frame.focus_entity
+            f_key = stmt.filter_key
+            f_val = stmt.filter_val
+            if stmt.kind == "recommend" and not f_key and self.current_frame.active_constraints:
+                f_key, f_val = next(iter(self.current_frame.active_constraints.items()))
+
+            stmt = DialogQuery(
+                kind=stmt.kind,
+                subject=subj,
+                predicate=stmt.predicate,
+                object=stmt.object,
+                filter_key=f_key,
+                filter_val=f_val,
+                subquery=stmt.subquery,
+                raw_text=stmt.raw_text,
+                line_num=stmt.line_num,
+            )
 
         result = self.session.execute_statement(stmt)
+
+        # Apply active frame constraints to filter returned answers when appropriate
+        if self.current_frame.active_constraints and result.answers:
+            filtered_answers = []
+            for ans in result.answers:
+                if isinstance(ans.value, str):
+                    cand_id = ans.value
+                    cand_ent = self.model.get_entity(cand_id)
+                    satisfies = True
+                    for ck, cv in self.current_frame.active_constraints.items():
+                        val = None
+                        if cand_ent and ck in cand_ent.attributes:
+                            val = cand_ent.attributes[ck]
+                        else:
+                            for asrt in self.model.query(subject=cand_id, predicate="instance_of"):
+                                if ck in asrt.attributes:
+                                    val = asrt.attributes[ck]
+                                    break
+                        if val is None or str(val) != str(cv):
+                            satisfies = False
+                            break
+                    if satisfies:
+                        if "filtered_by_frame_constraints" not in ans.explanation.rules_fired:
+                            ans.explanation.rules_fired.append("filtered_by_frame_constraints")
+                        filtered_answers.append(ans)
+                else:
+                    filtered_answers.append(ans)
+
+            result = DialogTurnResult(
+                statement_type=result.statement_type,
+                summary_text=f"{result.summary_text} [frame-filtered: {len(filtered_answers)} remaining]",
+                answers=filtered_answers,
+                raw_query=result.raw_query,
+            )
+
         self.current_frame.query_goal = clean
         self.current_frame.last_answers = list(result.answers)
         return result

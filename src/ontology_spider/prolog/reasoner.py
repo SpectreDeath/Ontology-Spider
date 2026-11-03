@@ -24,6 +24,10 @@ class PrologUnavailableError(PrologError):
     """Raised when swipl executable is not installed on the system."""
 
 
+class PrologExecutionError(PrologError):
+    """Raised when a query fails runtime caps or execution constraints."""
+
+
 class QueryTimeoutError(PrologError):
     """Raised when a query exceeds its allocated time limit."""
 
@@ -107,9 +111,13 @@ class PrologReasoner:
 
     _lock = threading.Lock()
 
-    def __init__(self, swipl_path: Optional[str] = None) -> None:
+    def __init__(
+        self, swipl_path: Optional[str] = None, max_results: int = 1000
+    ) -> None:
         self.swipl_path = swipl_path or find_swipl_executable()
         self.rules_path = Path(__file__).parent / "rules.pl"
+        self.max_results = max_results
+        self._facts_cache: dict[tuple[int, int], str] = {}
 
     @property
     def is_available(self) -> bool:
@@ -122,6 +130,8 @@ class PrologReasoner:
         subject: Optional[str] = None,
         predicate: Optional[str] = None,
         object: Optional[str] = None,
+        req_key: Optional[str] = None,
+        req_val: Optional[Any] = None,
         timeout_seconds: int = 10,
         max_inferences: int = 1000000,
     ) -> ReasonerResult:
@@ -138,6 +148,8 @@ class PrologReasoner:
                 subject=subject,
                 predicate=predicate,
                 object=object,
+                req_key=req_key,
+                req_val=req_val,
                 timeout_seconds=timeout_seconds,
                 max_inferences=max_inferences,
             )
@@ -149,10 +161,17 @@ class PrologReasoner:
         subject: Optional[str],
         predicate: Optional[str],
         object: Optional[str],
+        req_key: Optional[str],
+        req_val: Optional[Any],
         timeout_seconds: int,
         max_inferences: int,
     ) -> ReasonerResult:
-        facts_text = model_to_prolog_facts(model)
+        cache_key = (id(model), getattr(model, "version", 0))
+        if cache_key in self._facts_cache:
+            facts_text = self._facts_cache[cache_key]
+        else:
+            facts_text = model_to_prolog_facts(model)
+            self._facts_cache[cache_key] = facts_text
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
@@ -181,10 +200,18 @@ class PrologReasoner:
             elif goal_type == "recommend":
                 if not subject:
                     raise ValueError("Recommend query requires subject")
-                goal_str = (
-                    f"recommend({s}, Rec, Category, Rules, FactIds), "
-                    f"Result = json([value=Rec, category=Category, rules=Rules, facts=FactIds, path=[{s}, Rec]])"
-                )
+                if req_key and req_val is not None:
+                    rk = prolog_safe_string(req_key)
+                    rv = prolog_safe_string(req_val)
+                    goal_str = (
+                        f"recommend_match({s}, {rk}, {rv}, Rec, Rules, FactIds), "
+                        f"Result = json([value=Rec, rules=Rules, facts=FactIds, path=[{s}, Rec]])"
+                    )
+                else:
+                    goal_str = (
+                        f"recommend({s}, Rec, Category, Rules, FactIds), "
+                        f"Result = json([value=Rec, category=Category, rules=Rules, facts=FactIds, path=[{s}, Rec]])"
+                    )
             elif goal_type == "pattern":
                 goal_str = (
                     f"triple({s}, {p}, {o}, AsrtId), "
@@ -271,8 +298,14 @@ run :-
                     f"Prolog query exceeded inference cap of {limit} steps"
                 )
 
+            raw_answers = data.get("answers", [])
+            if len(raw_answers) > self.max_results:
+                raise PrologExecutionError(
+                    f"Query result count ({len(raw_answers)}) exceeds max_results cap ({self.max_results})."
+                )
+
             answers: list[ReasonerAnswer] = []
-            for item in data.get("answers", []):
+            for item in raw_answers:
                 val = item.get("value")
                 rules = item.get("rules", [])
                 facts = item.get("facts", [])

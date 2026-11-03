@@ -59,6 +59,15 @@ recommend(Item, Recommendation, SharedCategory, [recommend_shared_category], [As
     ; triple(Recommendation, subclass_of, SharedCategory, Asrt2) ),
     Item \= Recommendation.
 
+% recommend_match(+Class, +Key, +Value, -Candidate, -RulesFired, -FactIds)
+recommend_match(Class, Key, Value, Candidate, [recommend, instance_of_transitive, match_attribute], FactIds) :-
+    ( triple(Candidate, instance_of, Class, Asrt1), FactIds1 = [Asrt1]
+    ; ( triple(Candidate, instance_of, Sub, Asrt1), triple(Sub, subclass_of, Class, AsrtSub), FactIds1 = [Asrt1, AsrtSub] ) ),
+    ( attribute(Candidate, Key, Value)
+    ; attribute(Asrt1, Key, Value) ),
+    FactIds = FactIds1.
+
+
 % ------------------------------------------------------------------------------
 % Attribute inference / matching
 % ------------------------------------------------------------------------------

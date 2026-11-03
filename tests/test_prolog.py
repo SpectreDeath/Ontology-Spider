@@ -1,5 +1,6 @@
 import unittest
 
+from ontology_spider.dialog_runner import DialogSession
 from ontology_spider.model import (
     Assertion,
     Entity,
@@ -10,6 +11,7 @@ from ontology_spider.model import (
     SUBCLASS_OF,
 )
 from ontology_spider.prolog.reasoner import (
+    PrologExecutionError,
     PrologReasoner,
     QueryInferenceLimitError,
     QueryTimeoutError,
@@ -29,8 +31,14 @@ class TestPrologReasoner(unittest.TestCase):
 
     def test_roundtrip_translation(self):
         model = OntologyModel(uri="urn:test:roundtrip")
+        model.add_entity(Entity(id="dog", attributes={"carnivore": "true", "legs": 4}))
         p = Provenance(source="test_roundtrip")
-        model.add_assertion(Relation("dog", SUBCLASS_OF, "mammal"), p, assertion_id="a1")
+        model.add_assertion(
+            Relation("dog", SUBCLASS_OF, "mammal"),
+            p,
+            assertion_id="a1",
+            attributes={"confidence": 0.95},
+        )
         model.add_assertion(Relation("mammal", SUBCLASS_OF, "animal"), p, assertion_id="a2")
 
         facts = model_to_prolog_facts(model)
@@ -42,6 +50,9 @@ class TestPrologReasoner(unittest.TestCase):
         self.assertEqual(
             reconstructed.assertions["a1"].relation.subject, "dog"
         )
+        self.assertEqual(reconstructed.assertions["a1"].attributes.get("confidence"), 0.95)
+        self.assertEqual(reconstructed.get_entity("dog").attributes.get("legs"), 4)
+
 
     def test_ancestor_reasoning_and_provenance(self):
         model = OntologyModel(uri="urn:test:ancestry")
@@ -117,6 +128,56 @@ class TestPrologReasoner(unittest.TestCase):
 
         res2 = self.reasoner.query(m2, goal_type="pattern", subject="sky")
         self.assertEqual(len(res2.answers), 1)
+
+    def test_max_results_cap(self):
+        model = OntologyModel(uri="urn:test:max_results")
+        p = Provenance(source="test")
+        model.add_assertion(Relation("a", "subclass_of", "b"), p)
+        model.add_assertion(Relation("b", "subclass_of", "c"), p)
+        model.add_assertion(Relation("c", "subclass_of", "d"), p)
+
+        # Cap results at 2 when query produces 3 answers
+        limited_reasoner = PrologReasoner(max_results=2)
+        with self.assertRaises(PrologExecutionError) as ctx:
+            limited_reasoner.query(model, goal_type="ancestors", subject="a")
+        self.assertIn("exceeds max_results cap", str(ctx.exception))
+
+    def test_facts_translation_caching(self):
+        model = OntologyModel(uri="urn:test:caching")
+        p = Provenance(source="test")
+        model.add_assertion(Relation("cat", "subclass_of", "mammal"), p)
+
+        self.assertEqual(len(self.reasoner._facts_cache), 0)
+        self.reasoner.query(model, goal_type="ancestors", subject="cat")
+
+        cache_key = (id(model), model.version)
+        self.assertIn(cache_key, self.reasoner._facts_cache)
+
+        # Mutate model -> version changes
+        old_version = model.version
+        model.add_assertion(Relation("mammal", "subclass_of", "animal"), p)
+        self.assertGreater(model.version, old_version)
+
+        # Query again -> caches new version
+        self.reasoner.query(model, goal_type="ancestors", subject="cat")
+        new_cache_key = (id(model), model.version)
+        self.assertIn(new_cache_key, self.reasoner._facts_cache)
+
+    def test_degraded_python_fallback(self):
+        model = OntologyModel(uri="urn:test:degraded")
+        p = Provenance(source="test")
+        model.add_assertion(Relation("hummingbird", SUBCLASS_OF, "bird"), p)
+        model.add_assertion(Relation("bird", SUBCLASS_OF, "animal"), p)
+        model.add_assertion(Relation("fluffy", INSTANCE_OF, "hummingbird"), p)
+
+        dummy_reasoner = PrologReasoner(swipl_path="C:\\nonexistent\\swipl.exe")
+        session = DialogSession(model=model, reasoner=dummy_reasoner, allow_degraded_fallback=True)
+
+        # Ancestors query in degraded mode
+        turn_res = session.run_text("query ancestors of fluffy")[0]
+        self.assertIn("[Degraded Mode: swipl unavailable]", turn_res.summary_text)
+        self.assertEqual(len(turn_res.answers), 3)
+        self.assertIn("degraded_python_fallback", turn_res.answers[0].explanation.rules_fired)
 
 
 if __name__ == "__main__":

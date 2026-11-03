@@ -9,6 +9,7 @@ from typing import Any, Optional, Union
 from ontology_spider.dialog import (
     DialogAssertion,
     DialogDoc,
+    DialogEntityDecl,
     DialogImport,
     DialogQuery,
     parse_dialog,
@@ -23,6 +24,7 @@ from ontology_spider.model import (
 from ontology_spider.prolog.reasoner import (
     Explanation,
     PrologReasoner,
+    PrologUnavailableError,
     ReasonerAnswer,
     ReasonerResult,
 )
@@ -46,16 +48,19 @@ class DialogSession:
         model: Optional[OntologyModel] = None,
         reasoner: Optional[PrologReasoner] = None,
         base_dir: Optional[Path] = None,
+        allow_degraded_fallback: bool = True,
     ) -> None:
         self.model = model or OntologyModel(uri="urn:dialog:session")
         self.reasoner = reasoner or PrologReasoner()
         self.base_dir = base_dir or Path.cwd()
+        self.allow_degraded_fallback = allow_degraded_fallback
         self.turn_counter: int = 0
         self.last_query_result: Optional[ReasonerResult] = None
         self.history: list[DialogTurnResult] = []
 
     def execute_statement(
-        self, stmt: Union[DialogImport, DialogAssertion, DialogQuery]
+        self,
+        stmt: Union[DialogImport, DialogEntityDecl, DialogAssertion, DialogQuery],
     ) -> DialogTurnResult:
         self.turn_counter += 1
         turn_id = f"turn_{self.turn_counter}"
@@ -89,15 +94,39 @@ class DialogSession:
             self.history.append(res)
             return res
 
+        if isinstance(stmt, DialogEntityDecl):
+            ent_attrs = dict(stmt.attributes)
+            name = ent_attrs.pop("name", None)
+            existing = self.model.get_entity(stmt.entity_id)
+            if existing:
+                existing.attributes.update(ent_attrs)
+                if name:
+                    existing.name = name
+            else:
+                self.model.add_entity(
+                    Entity(id=stmt.entity_id, name=name, attributes=ent_attrs)
+                )
+            res = DialogTurnResult(
+                statement_type="entity",
+                summary_text=f"Declared entity: {stmt.entity_id} with {len(stmt.attributes)} attributes",
+            )
+            self.history.append(res)
+            return res
+
         if isinstance(stmt, DialogAssertion):
+            attrs = dict(stmt.attributes)
+            aid = attrs.pop("_id", None)
+            src = attrs.pop("_source", "dialog_session")
+            tid = attrs.pop("_turn", turn_id)
             prov = Provenance(
-                source="dialog_session",
-                turn_id=turn_id,
+                source=src,
+                turn_id=tid,
             )
             asrt = self.model.add_assertion(
                 relation=Relation(stmt.subject, stmt.predicate, stmt.object),
                 provenance=prov,
-                attributes=stmt.attributes,
+                assertion_id=aid,
+                attributes=attrs,
             )
             res = DialogTurnResult(
                 statement_type="assertion",
@@ -113,8 +142,133 @@ class DialogSession:
 
         raise ValueError(f"Unknown statement type: {type(stmt)}")
 
+    def _coerce_val(self, val: Any) -> Any:
+        if val is None:
+            return None
+        s = str(val).strip().strip('"').strip("'")
+        try:
+            if "." in s:
+                return float(s)
+            return int(s)
+        except ValueError:
+            return s
+
+    def _execute_degraded_query(self, query: DialogQuery) -> ReasonerResult:
+        answers: list[ReasonerAnswer] = []
+        if query.kind == "ancestors":
+            target = query.subject
+            visited = set()
+            queue = [target]
+            while queue:
+                curr = queue.pop(0)
+                for pred in ("subclass_of", "instance_of"):
+                    for a in self.model.query(subject=curr, predicate=pred):
+                        obj = a.relation.object
+                        if obj not in visited:
+                            visited.add(obj)
+                            queue.append(obj)
+                            answers.append(
+                                ReasonerAnswer(
+                                    value=obj,
+                                    explanation=Explanation(
+                                        rules_fired=["degraded_python_fallback"],
+                                        fact_ids=[a.assertion_id],
+                                        path=[target, obj],
+                                        provenance_assertions=[a],
+                                    ),
+                                )
+                            )
+            return ReasonerResult(query_goal=f"ancestors({target})", answers=answers)
+
+        if query.kind == "transitive":
+            target = query.subject
+            pred = query.predicate
+            visited = set()
+            queue = [target]
+            while queue:
+                curr = queue.pop(0)
+                for a in self.model.query(subject=curr, predicate=pred):
+                    obj = a.relation.object
+                    if obj not in visited:
+                        visited.add(obj)
+                        queue.append(obj)
+                        answers.append(
+                            ReasonerAnswer(
+                                value=obj,
+                                explanation=Explanation(
+                                    rules_fired=["degraded_python_fallback"],
+                                    fact_ids=[a.assertion_id],
+                                    path=[target, obj],
+                                    provenance_assertions=[a],
+                                ),
+                            )
+                        )
+            return ReasonerResult(query_goal=f"transitive({pred}, {target})", answers=answers)
+
+        if query.kind == "pattern":
+            for a in self.model.query(
+                subject=query.subject, predicate=query.predicate, object=query.object
+            ):
+                answers.append(
+                    ReasonerAnswer(
+                        value={
+                            "subject": a.relation.subject,
+                            "predicate": a.relation.predicate,
+                            "object": a.relation.object,
+                        },
+                        explanation=Explanation(
+                            rules_fired=["degraded_python_fallback"],
+                            fact_ids=[a.assertion_id],
+                            path=[a.relation.subject, a.relation.object],
+                            provenance_assertions=[a],
+                        ),
+                    )
+                )
+            return ReasonerResult(query_goal="pattern", answers=answers)
+
+        if query.kind == "recommend":
+            cls_name = query.object or query.subject or ""
+            target_classes = {cls_name}
+            queue = [cls_name]
+            while queue:
+                curr = queue.pop(0)
+                for a in self.model.query(predicate="subclass_of", object=curr):
+                    sub = a.relation.subject
+                    if sub not in target_classes:
+                        target_classes.add(sub)
+                        queue.append(sub)
+
+            for tc in target_classes:
+                for a in self.model.query(predicate="instance_of", object=tc):
+                    cand = a.relation.subject
+                    if query.filter_key and query.filter_val is not None:
+                        val = a.attributes.get(query.filter_key)
+                        if val is None:
+                            ent = self.model.get_entity(cand)
+                            if ent:
+                                val = ent.attributes.get(query.filter_key)
+                        if val is None or str(val) != str(query.filter_val):
+                            continue
+                    answers.append(
+                        ReasonerAnswer(
+                            value=cand,
+                            explanation=Explanation(
+                                rules_fired=["degraded_python_fallback"],
+                                fact_ids=[a.assertion_id],
+                                path=[cls_name, cand],
+                                provenance_assertions=[a],
+                            ),
+                        )
+                    )
+            return ReasonerResult(query_goal=f"recommend({cls_name})", answers=answers)
+
+        return ReasonerResult(query_goal=query.kind, answers=[])
+
     def _execute_query(self, query: DialogQuery, turn_id: str) -> DialogTurnResult:
         if query.kind == "explain":
+            if query.subquery is not None:
+                self._execute_query(query.subquery, turn_id)
+
             if not self.last_query_result or not self.last_query_result.answers:
                 return DialogTurnResult(
                     statement_type="explain",
@@ -135,7 +289,7 @@ class DialogSession:
                 raw_query=query,
             )
 
-        # Query kinds: lookup, ancestors, transitive, filter, pattern
+        # Query kinds: lookup, ancestors, transitive, filter, pattern, recommend
         if query.kind == "lookup":
             # Direct entity lookup: find all relations where entity is subject or object
             subject = query.subject
@@ -180,12 +334,19 @@ class DialogSession:
             )
 
         if query.kind == "ancestors":
-            reasoner_res = self.reasoner.query(
-                self.model, goal_type="ancestors", subject=query.subject
-            )
+            if not self.reasoner.is_available:
+                if not self.allow_degraded_fallback:
+                    raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
+                reasoner_res = self._execute_degraded_query(query)
+                prefix = "[Degraded Mode: swipl unavailable] "
+            else:
+                reasoner_res = self.reasoner.query(
+                    self.model, goal_type="ancestors", subject=query.subject
+                )
+                prefix = ""
             self.last_query_result = reasoner_res
             vals = [str(a.value) for a in reasoner_res.answers]
-            summary = f"Ancestors of {query.subject}: {', '.join(vals) if vals else 'none'}"
+            summary = f"{prefix}Ancestors of {query.subject}: {', '.join(vals) if vals else 'none'}"
             return DialogTurnResult(
                 statement_type="query",
                 summary_text=summary,
@@ -194,15 +355,54 @@ class DialogSession:
             )
 
         if query.kind == "transitive":
-            reasoner_res = self.reasoner.query(
-                self.model,
-                goal_type="transitive",
-                subject=query.subject,
-                predicate=query.predicate,
-            )
+            if not self.reasoner.is_available:
+                if not self.allow_degraded_fallback:
+                    raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
+                reasoner_res = self._execute_degraded_query(query)
+                prefix = "[Degraded Mode: swipl unavailable] "
+            else:
+                reasoner_res = self.reasoner.query(
+                    self.model,
+                    goal_type="transitive",
+                    subject=query.subject,
+                    predicate=query.predicate,
+                )
+                prefix = ""
             self.last_query_result = reasoner_res
             vals = [str(a.value) for a in reasoner_res.answers]
-            summary = f"Transitive {query.predicate} from {query.subject}: {', '.join(vals) if vals else 'none'}"
+            summary = f"{prefix}Transitive {query.predicate} from {query.subject}: {', '.join(vals) if vals else 'none'}"
+            return DialogTurnResult(
+                statement_type="query",
+                summary_text=summary,
+                answers=reasoner_res.answers,
+                raw_query=query,
+            )
+
+        if query.kind == "recommend":
+            cls_name = query.object or query.subject or ""
+            f_val = self._coerce_val(query.filter_val) if query.filter_val is not None else None
+            if not self.reasoner.is_available:
+                if not self.allow_degraded_fallback:
+                    raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
+                reasoner_res = self._execute_degraded_query(query)
+                prefix = "[Degraded Mode: swipl unavailable] "
+            else:
+                reasoner_res = self.reasoner.query(
+                    self.model,
+                    goal_type="recommend",
+                    subject=cls_name,
+                    req_key=query.filter_key,
+                    req_val=f_val,
+                )
+                prefix = ""
+            self.last_query_result = reasoner_res
+            vals = [str(a.value) for a in reasoner_res.answers]
+            filter_info = (
+                f" where {query.filter_key}={query.filter_val}"
+                if query.filter_key
+                else ""
+            )
+            summary = f"{prefix}Recommended {cls_name}{filter_info}: {', '.join(vals) if vals else 'none'}"
             return DialogTurnResult(
                 statement_type="query",
                 summary_text=summary,
@@ -250,27 +450,35 @@ class DialogSession:
                 raw_query=query,
             )
 
+
         if query.kind == "pattern":
-            # Pattern matching with Prolog or in-memory
-            reasoner_res = self.reasoner.query(
-                self.model,
-                goal_type="pattern",
-                subject=query.subject,
-                predicate=query.predicate,
-                object=query.object,
-            )
+            if not self.reasoner.is_available:
+                if not self.allow_degraded_fallback:
+                    raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
+                reasoner_res = self._execute_degraded_query(query)
+                prefix = "[Degraded Mode: swipl unavailable] "
+            else:
+                reasoner_res = self.reasoner.query(
+                    self.model,
+                    goal_type="pattern",
+                    subject=query.subject,
+                    predicate=query.predicate,
+                    object=query.object,
+                )
+                prefix = ""
             self.last_query_result = reasoner_res
             matched_triples = [
                 f"({ans.value.get('subject')} {ans.value.get('predicate')} {ans.value.get('object')})"
                 for ans in reasoner_res.answers
             ]
-            summary = f"Matches: {', '.join(matched_triples) if matched_triples else 'none'}"
+            summary = f"{prefix}Matches: {', '.join(matched_triples) if matched_triples else 'none'}"
             return DialogTurnResult(
                 statement_type="query",
                 summary_text=summary,
                 answers=reasoner_res.answers,
                 raw_query=query,
             )
+
 
         raise ValueError(f"Unsupported query kind: {query.kind}")
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from ontology_spider.dialog import (
     DialogAssertion,
     DialogDoc,
+    DialogEntityDecl,
     DialogImport,
     DialogQuery,
     ParseError,
@@ -77,6 +78,31 @@ assert feline subclass_of mammal
         self.assertEqual(len(asrts), 2)
         # Verify provenance was attached
         self.assertTrue(all(a.provenance.source == "inline.dialog" for a in asrts))
+
+    def test_entity_decl_and_recommend_and_inline_explain(self):
+        sample = """
+        dialog urn:test:extended
+        entity quad_x1 [payload_kg=5, max_speed=45]
+        assert quad_x1 instance_of delivery_drone
+        query recommend delivery_drone where payload_kg = 5
+        explain query recommend delivery_drone where payload_kg = 5
+        """
+        doc = parse_dialog(sample)
+        entities = [s for s in doc.statements if isinstance(s, DialogEntityDecl)]
+        self.assertEqual(len(entities), 1)
+        self.assertEqual(entities[0].entity_id, "quad_x1")
+        self.assertEqual(entities[0].attributes["payload_kg"], 5)
+
+        queries = [s for s in doc.statements if isinstance(s, DialogQuery)]
+        self.assertEqual(len(queries), 2)
+        self.assertEqual(queries[0].kind, "recommend")
+        self.assertEqual(queries[0].object, "delivery_drone")
+        self.assertEqual(queries[0].filter_key, "payload_kg")
+        self.assertEqual(queries[0].filter_val, "5")
+
+        self.assertEqual(queries[1].kind, "explain")
+        self.assertIsNotNone(queries[1].subquery)
+        self.assertEqual(queries[1].subquery.kind, "recommend")
 
 
 if __name__ == "__main__":

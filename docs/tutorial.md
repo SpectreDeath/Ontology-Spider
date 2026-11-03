@@ -72,8 +72,47 @@ html_view = export_model(model, "html")
 
 ## 3. Interactive Dialogue REPL
 
-Start an interactive conversational REPL session:
+Start an interactive conversational REPL session with DARPA Communicator frame stack:
 
 ```bash
-python -m ontology_spider.cli repl
+dialog repl --file examples/tutorial.dialog
 ```
+
+Inside the REPL:
+```dialog
+dialog> where am I
+Traversal Stack (1 frames active):
+  [1] frame_1: focus='none', constraints='none', goal='none' (active)
+
+dialog> focus delivery_drone
+Focused on entity 'delivery_drone' in frame_2.
+
+dialog> constrain payload_kg=5
+Updated constraint payload_kg='5' in frame_2.
+
+dialog> query recommend delivery_drone
+Recommended delivery_drone where payload_kg=5: sky_scout [frame-filtered: 1 remaining]
+  -> sky_scout
+
+dialog> validate
+Validation passed: 0 violations.
+
+dialog> export html
+... (Outputs self-contained HTML view) ...
+```
+
+---
+
+## 4. Validating and Exporting via CLI
+
+Validate model integrity:
+```bash
+dialog validate examples/tutorial.dialog
+```
+
+Export directly to HTML or Graphviz DOT:
+```bash
+dialog export examples/tutorial.dialog --format html -o tutorial.html
+dialog export examples/tutorial.dialog --format dot -o tutorial.dot
+```
+

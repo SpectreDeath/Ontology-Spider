@@ -1,7 +1,7 @@
 import unittest
 
 from ontology_spider.api import export_model, load_model, run_query, validate_model
-from ontology_spider.model import OntologyModel, Provenance, Relation, SUBCLASS_OF, INSTANCE_OF
+from ontology_spider.model import Entity, OntologyModel, Provenance, Relation, SUBCLASS_OF, INSTANCE_OF
 
 
 class TestApiAndExport(unittest.TestCase):
@@ -45,11 +45,33 @@ class TestApiAndExport(unittest.TestCase):
         )
 
     def test_roundtrip_dialog_export_and_import(self):
+        # Add entity with attributes and assertion with custom attributes
+        self.model.add_entity(Entity(id="jack", name="Jack Sparrow", attributes={"wingspan_cm": 25}))
+        p = Provenance(source="custom_turn_source", turn_id="t99")
+        self.model.add_assertion(
+            Relation("jack", "flies_speed", "fast"),
+            p,
+            assertion_id="asrt_speed_jack",
+            attributes={"metric": "high"},
+        )
+
         dialog_str = export_model(self.model, "dialog")
         reimported = load_model(dialog_str)
 
         self.assertEqual(reimported.uri, self.model.uri)
         self.assertEqual(len(reimported.assertions), len(self.model.assertions))
+
+        # Check entity attributes preserved
+        jack_ent = reimported.get_entity("jack")
+        self.assertIsNotNone(jack_ent)
+        self.assertEqual(jack_ent.attributes.get("wingspan_cm"), 25)
+
+        # Check assertion ID, attributes, and provenance preserved
+        asrt_speed = reimported.assertions.get("asrt_speed_jack")
+        self.assertIsNotNone(asrt_speed)
+        self.assertEqual(asrt_speed.attributes.get("metric"), "high")
+        self.assertEqual(asrt_speed.provenance.source, "custom_turn_source")
+        self.assertEqual(asrt_speed.provenance.turn_id, "t99")
 
         orig_query = run_query(self.model, "query ancestors of jack")
         reimport_query = run_query(reimported, "query ancestors of jack")
