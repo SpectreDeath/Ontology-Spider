@@ -207,46 +207,52 @@ No engine code until the decisions below are recorded with reasons. The only
 code in this track is the repository skeleton. This track may overturn the
 working assumptions in this plan — that is its job.
 
-- [ ] Repository created (name: Ontology-Spider, license: MIT — decided by
+- [x] Repository created (name: Ontology-Spider, license: MIT — decided by
       the user at repo creation 2026-11-03; initial commit holds LICENSE +
       README). Skeleton: README stating what the engine is and is not,
       `.gitignore`, Python package skeleton, CI running lint + test on an
-      empty core, green before any engine code lands.
-- [ ] Dependency approval recorded (enforcing the standing guardrail: "No new
+      empty core, green before any engine code lands. [commit bae6f17, test
+      tests.test_skeleton.TestSkeleton.test_package_version]
+- [x] Dependency approval recorded (enforcing the standing guardrail: "No new
       third-party dependencies without the user's explicit approval"):
       explicitly list and obtain user approval for every runtime and dev/CI
       third-party package (e.g., `pyswip` if chosen for the Prolog bridge,
       plus test/lint tooling such as `pytest` / `ruff`, or stdlib `unittest`
       if zero-dependency testing is preferred). Zero unapproved packages in
-      `pyproject.toml`.
-- [ ] Language decision recorded: adopt the ASKE SADL/Dialog grammar as-is,
+      `pyproject.toml`. [written decision in docs/decisions.md §1; pyproject.toml
+      dependencies = []]
+- [x] Language decision recorded: adopt the ASKE SADL/Dialog grammar as-is,
       adapt it, or design a fresh minimal syntax inspired by Dialog.
       Recommendation: fresh minimal syntax. The Xtext grammar is Eclipse-bound
       and 2019-era; a fresh parser keeps the standalone free of Eclipse. If
       adopting, record the ASKE repos' license compatibility first (see §11).
-      Record the decision and its reason either way.
-- [ ] Model decision recorded: triples (subject, predicate, object) plus
+      Record the decision and its reason either way. [written decision in
+      docs/decisions.md §2]
+- [x] Model decision recorded: triples (subject, predicate, object) plus
       attributes, or something richer? Recommendation: triples first, with a
       small canonical built-in vocabulary for schema relations (see Track 1).
       An OWL subset only if a concrete need appears during Tracks 1–3, not
-      upfront.
-- [ ] Runtime decision recorded: Python + SWI-Prolog via PySWIP with a single
+      upfront. [written decision in docs/decisions.md §3]
+- [x] Runtime decision recorded: Python + SWI-Prolog via PySWIP with a single
       shared engine behind a lock (the Em-Cubed surface pattern in
       `src/em_cubed/surfaces/prolog_surface.py`), OR a zero-Python-dependency
       `swipl` subprocess bridge if PySWIP packaging/FFI on the target OS/Python
       floor proves brittle (see §11). Also record the fallback if SWI-Prolog
       itself is unavailable: hard requirement, or degraded mode with
-      Prolog-dependent features disabled? Decide, do not leave implicit.
-- [ ] Parser decision recorded: hand-written recursive-descent parser over
+      Prolog-dependent features disabled? Decide, do not leave implicit. [written
+      decision in docs/decisions.md §4]
+- [x] Parser decision recorded: hand-written recursive-descent parser over
       the fresh syntax, or a parser library (which needs the user's dependency
       approval). Recommendation: hand-written — the syntax is small, and a
-      library is a dependency for a problem this size does not need.
-- [ ] Python floor recorded. Recommendation: 3.10+, matching the user's other
+      library is a dependency for a problem this size does not need. [written
+      decision in docs/decisions.md §5]
+- [x] Python floor recorded. Recommendation: 3.10+, matching the user's other
       repos (Em-Cubed and brain-harness both floor at 3.10). Record the floor
-      and the reason.
-- [ ] Verify: a decisions doc exists with a reason for every decision above
+      and the reason. [written decision in docs/decisions.md §6; tested on 3.13]
+- [x] Verify: a decisions doc exists with a reason for every decision above
       (including explicit user sign-off on any third-party runtime/dev
       dependencies); skeleton repo builds and CI is green on the empty core.
+      [commit bae6f17, docs/decisions.md]
 
 ## Track 1 — Model and import seam **[NW for the seam interface]**
 
@@ -254,60 +260,73 @@ The seam is the load-bearing part of the whole project: the later plugin
 depends on it being clean. A seam with brain-harness-specific imports is a
 failed seam.
 
-- [ ] Core model types: Entity, Relation (a triple), Attribute. Deterministic
+- [x] Core model types: Entity, Relation (a triple), Attribute. Deterministic
       assertion identity (`assertion_id`) and provenance on every assertion:
       source, timestamp, and the dialog turn that produced it (for
       elicitation-created content) or the import source (for loaded content),
       plus optional parent turn dependencies (for Track 4 mixed-initiative
-      retractions). In-memory store with add, retract, and query.
-- [ ] Canonical built-in schema relation vocabulary over triples so Tracks 3,
+      retractions). In-memory store with add, retract, and query. [commit 48e0579,
+      test tests.test_model.TestModel.test_add_and_query_assertions,
+      test_retract_assertion, test_retract_by_turn_id]
+- [x] Canonical built-in schema relation vocabulary over triples so Tracks 3,
       4, and 6 share one representation without inventing conflicting names:
       `instance_of` (entity-to-class membership), `subclass_of` (class
       hierarchy), `domain` and `range` (relation endpoint typing),
       `disjoint_with` (mutually exclusive classes), and `acyclic` (relation
       property declaration). Domain-specific relations use the same triple
-      store alongside these built-ins.
-- [ ] Import seam **[NW]**: a `ModelSource` interface with one method, `load()`,
+      store alongside these built-ins. [commit 48e0579, test
+      tests.test_model.TestModel.test_canonical_schema_vocabulary]
+- [x] Import seam **[NW]**: a `ModelSource` interface with one method, `load()`,
       that returns a model. Built-in sources for v1:
       - **Track 1a:** a JSON graph reader.
       - **Track 1b (closes once Track 2's `.dialog` parser lands):** authoring
         in the Dialog language itself (a model written as a dialog file —
         dogfooding the language as the authoring format).
-      No other source in v1.
-- [ ] The seam carries no brain-harness-specific code, imports, or field
+      No other source in v1. [commits 48e0579 and c06dbb4, test
+      tests.test_seam.TestSeam.test_json_model_source_file,
+      tests.test_dialog.TestDialog.test_dialog_model_source_loading]
+- [x] The seam carries no brain-harness-specific code, imports, or field
       names **[NW]**. A second source implemented against the interface (in
-      Track 9's seam proof) must work without touching the seam.
-- [ ] Verify: two independent sources (JSON and `.dialog`) load the same
+      Track 9's seam proof) must work without touching the seam. [commit 48e0579,
+      test tests.test_seam_isolation.TestSeamIsolation.test_seam_imports_and_tokens_clean]
+- [x] Verify: two independent sources (JSON and `.dialog`) load the same
       sample model and produce identical query answers and preserved
       provenance; the seam module imports nothing brain-harness-specific
       (checked by automated AST/import inspection test, not by assertion
-      alone).
+      alone). [commits 48e0579 and c06dbb4, tests.test_seam_isolation,
+      tests.test_seam]
 
 ## Track 2 — Dialog language
 
 The language is the user's hands on the engine. It must be small enough to
 learn in one sitting and precise enough that a query means one thing.
 
-- [ ] `.dialog` file format: header (a name/URI plus import statements naming
+- [x] `.dialog` file format: header (a name/URI plus import statements naming
       the models the dialog uses, ASKE-style), then turns: queries and
       assertions in the controlled syntax, plus comments. One file, one
-      dialog, readable without tooling.
-- [ ] Parser for the Track 0 syntax: queries, assertions, imports, comments,
+      dialog, readable without tooling. [commit c06dbb4, test
+      tests.test_dialog.TestDialog.test_parse_valid_dialog]
+- [x] Parser for the Track 0 syntax: queries, assertions, imports, comments,
       producing a small typed AST (never raw pass-through Prolog strings).
       Parse errors report the line and the expected form, not a traceback.
-- [ ] CLI: `dialog run <file.dialog>` (batch: run every turn, print every
+      [commit c06dbb4, test tests.test_dialog.TestDialog.test_parse_error_reporting]
+- [x] CLI: `dialog run <file.dialog>` (batch: run every turn, print every
       answer) and `dialog repl` (interactive: one turn at a time, with
-      history). Batch and interactive agree on every sample.
-- [ ] Query coverage for v1: fact lookup ("what is X?"), one-hop and
+      history). Batch and interactive agree on every sample. [commit c06dbb4,
+      test tests.test_cli_and_runner.TestCliAndRunner.test_cli_run_batch_file,
+      test_batch_and_interactive_parity]
+- [x] Query coverage for v1: fact lookup ("what is X?"), one-hop and
       multi-hop relation traversal ("what does X depend on, transitively?"),
       filtered queries (attribute constraints), and "explain this answer"
       (e.g., `explain` for the preceding turn's answer or `explain <query>` —
       the follow-up that returns the facts with their Track 1 provenance,
       rules, and path behind an answer — ASKE's explanatory follow-up, as a
-      first-class query form, not an afterthought).
-- [ ] Verify: a sample `.dialog` file over the sample model returns the
+      first-class query form, not an afterthought). [commit c06dbb4, test
+      tests.test_cli_and_runner.TestCliAndRunner.test_runner_batch_execution]
+- [x] Verify: a sample `.dialog` file over the sample model returns the
       expected answers with explanations; REPL and batch agree on all
-      samples; a malformed file reports line + expected form.
+      samples; a malformed file reports line + expected form. [commit c06dbb4,
+      test tests.test_cli_and_runner, tests.test_dialog]
 
 ## Track 3 — Prolog reasoner
 
@@ -315,7 +334,7 @@ Prolog holds the model and does the reasoning. The engine translates the
 model into facts and runs the user's query as a goal; the rule library is
 what turns facts into answers.
 
-- [ ] SWI-Prolog via the Track 0 runtime choice (PySWIP single shared engine
+- [x] SWI-Prolog via the Track 0 runtime choice (PySWIP single shared engine
       behind a lock, following Em-Cubed's `src/em_cubed/surfaces/prolog_surface.py`
       pattern as the C engine is not thread-safe for concurrent FFI, or the
       approved Track 0 fallback). Model-to-facts translation with safe value
@@ -325,8 +344,10 @@ what turns facts into answers.
       provenance. Explicit fact-base reset/retraction under the lock on model
       load, reload, or retraction so assertions never leak across runs or
       tests. Translation is round-trippable: facts generated from a model,
-      read back, equal the model.
-- [ ] Rule library, mirroring the `skill_taxonomy.pl` query shapes
+      read back, equal the model. [commit e3d1c16, test
+      tests.test_prolog.TestPrologReasoner.test_roundtrip_translation,
+      test_state_isolation_between_models]
+- [x] Rule library, mirroring the `skill_taxonomy.pl` query shapes
       (`recommend_materials`, `resolve_skill_ancestry`,
       `infer_professions_from_keywords`, `get_profession_hierarchy`,
       `get_domain_skills`) generalized over any model: transitive ancestry
@@ -335,15 +356,18 @@ what turns facts into answers.
       on"), recommendation ("things related to X by shared domain/category"),
       and keyword/attribute inference ("things matching these attributes").
       Rules live in Prolog source files in the repo, not generated strings
-      hidden in Python.
-- [ ] Proof and explanation recording: because standard Prolog SLD resolution
+      hidden in Python. [commit e3d1c16, test
+      tests.test_prolog.TestPrologReasoner.test_ancestor_reasoning_and_provenance,
+      test_cycle_guard_in_transitive]
+- [x] Proof and explanation recording: because standard Prolog SLD resolution
       returns only variable bindings, the rule library either executes goals
       through a small Prolog meta-interpreter (`prove(Goal, ProofTrace)`) or
       carries explicit proof/path/fact-ID terms in rule heads so every answer
       returns: (1) the bound result, (2) the ordered chain of rules that
       fired, (3) the `assertion_id`s of base facts that fired (resolved to
-      Track 1 provenance), and (4) the entity/relation path walked.
-- [ ] Query caps and timeouts: a per-query timeout and a fact/result cap
+      Track 1 provenance), and (4) the entity/relation path walked. [commit e3d1c16,
+      test tests.test_prolog.TestPrologReasoner.test_ancestor_reasoning_and_provenance]
+- [x] Query caps and timeouts: a per-query timeout and a fact/result cap
       (a number decided in this track, recorded with its reason — Em-Cubed's
       Datalog surface uses a 5000 fact-line cap as a precedent for capping,
       not as a number to copy blindly). Timeouts and inference/depth limits
@@ -351,108 +375,126 @@ what turns facts into answers.
       `call_with_inference_limit/3`) rather than via Python wrapper threads,
       which cannot preempt a blocked C FFI call or release the engine lock.
       A query that exceeds either limit fails loudly with the limit named,
-      never silently truncated.
-- [ ] Trust boundary stated in the README and in code comments: v1 runs
+      never silently truncated. [commit e3d1c16, test
+      tests.test_prolog.TestPrologReasoner.test_timeout_on_infinite_loop,
+      test_inference_limit_on_infinite_loop]
+- [x] Trust boundary stated in the README and in code comments: v1 runs
       local, trusted models only. User queries in `.dialog` compile only to
       calls against the predefined rule library with escaped arguments (never
       raw user strings passed to Prolog as arbitrary goals), and Prolog goals
       in loaded rules can perform I/O; this plan does not claim a sandbox it
       does not build. If a sandbox is wanted, that is a new track with its
-      own design, not a flag added here.
-- [ ] Verify: the rule library answers every sample query with full proof
+      own design, not a flag added here. [commits bae6f17 and 62a14a8, README.md,
+      docs/architecture.md §2]
+- [x] Verify: the rule library answers every sample query with full proof
       traces (fired rules, fired facts with provenance, walked path); a
       deliberately non-terminating rule (left-recursive test case) hits the
       in-Prolog timeout/inference limit, releases the lock cleanly, and
       reports the named limit; loading a second model leaves zero residual
       facts from the first; translation round-trips exactly; the trust
-      statement exists in the README.
+      statement exists in the README. [commit e3d1c16, test tests.test_prolog]
 
 ## Track 4 — Creation: elicitation dialogue
 
 The half ASKE Dialog does not have. A managed dialogue that ends in a model,
 not a pipeline that runs once and stops.
 
-- [ ] Dialogue manager as an explicit state machine (states, transitions,
+- [x] Dialogue manager as an explicit state machine (states, transitions,
       prompts), not a free-form loop. States for v1: eliciting classes,
       eliciting relations (including domain, range, and acyclicity), eliciting
       instances and attributes, confirming. Each state has its prompts, its
       controlled-input grammar/slot format (consistent with Track 10's no-LLM
       v1 rule), and its exit conditions written down before it is coded.
-- [ ] Prompt shape, simplified from Em-Cubed's elicitation: decision
+      [commit 78c4753, test tests.test_elicitation.TestElicitation.test_scripted_elicitation_session]
+- [x] Prompt shape, simplified from Em-Cubed's elicitation: decision
       questions ("what is this ontology about?" — recorded as ontology header
       metadata/scope), competency questions ("what must it be able to answer?"
       — recorded as runnable `.dialog` queries to check against the resulting
       model), then class/relation/instance elicitation and mandatory
       confirmation ("here is what I understood — correct?"). Confirmation is
-      mandatory before any assertion lands in the model.
-- [ ] Mixed-initiative correction (the DARPA Communicator lesson): the user
+      mandatory before any assertion lands in the model. [commit 78c4753, test
+      tests.test_elicitation.TestElicitation.test_scripted_elicitation_session]
+- [x] Mixed-initiative correction (the DARPA Communicator lesson): the user
       can amend an earlier answer mid-dialogue. Each turn records the upstream
       turn IDs its assertions depend on (e.g., relation domain/range and
       instance assertions depend on the class/relation turns they reference).
       When an earlier turn is amended, the manager deterministically walks the
       turn-dependency graph, retracts every downstream assertion whose
       dependency changed, and re-asks every affected confirmation — no
-      assertion survives a correction to the answer it came from.
-- [ ] Confirmed turns land in the model with provenance (dialog turn id,
+      assertion survives a correction to the answer it came from. [commit 78c4753,
+      test tests.test_elicitation.TestElicitation.test_mixed_initiative_amendment]
+- [x] Confirmed turns land in the model with provenance (dialog turn id,
       timestamp) and invoke a post-elicitation validation hook (wired to
       Track 6's constraint and assumption checks once Track 6 lands). The
       created model exports to the Track 1 formats (JSON and Dialog authoring
       form) so a created ontology is immediately usable as an imported model.
-- [ ] Verify: a scripted elicitation session (fixed answers, no human)
+      [commit 78c4753, test tests.test_elicitation.TestElicitation.test_unconfirmed_assertions_never_reach_model]
+- [x] Verify: a scripted elicitation session (fixed answers, no human)
       produces the expected model and runs its recorded competency queries; a
       scripted mid-session correction propagates across dependent turns
       (changed answer, re-confirmation, updated model, zero stale assertions);
-      unconfirmed content never reaches the model.
+      unconfirmed content never reaches the model. [commit 78c4753, test
+      tests.test_elicitation]
 
 ## Track 5 — Traversal: query dialogue
 
 The conversational form of Track 2's queries. Same answers as batch mode,
 reached by talking.
 
-- [ ] Dialogue state tracked across turns via an explicit stack of traversal
+- [x] Dialogue state tracked across turns via an explicit stack of traversal
       frames (each frame holding: `frame_id`, current focus entity, active
       constraints, and active query goal), visible to the user on request
       ("where am I in this dialog?"). The manager re-plans on constraint
       change: a changed constraint aborts/pops any subdialogue frame whose
       assumptions/constraints it invalidates and resurrects/re-evaluates the
       frames it does not — the Communicator lesson, applied to ontology
-      traversal instead of travel planning.
-- [ ] Multi-hop path queries return auditable paths (the GraphPathRAG shape):
+      traversal instead of travel planning. [commit 78c4753, test
+      tests.test_traversal.TestTraversalDialogue.test_frame_stack_and_where_am_i,
+      test_constraint_change_aborts_conflicting_subframe]
+- [x] Multi-hop path queries return auditable paths (the GraphPathRAG shape):
       the chain of relations walked, not just the endpoint. A path answer
-      names every intermediate entity and relation.
-- [ ] Explanatory follow-ups: after any answer, "how was this obtained?"
+      names every intermediate entity and relation. [commit 78c4753, test
+      tests.test_traversal.TestTraversalDialogue.test_query_and_explanation_in_frame]
+- [x] Explanatory follow-ups: after any answer, "how was this obtained?"
       (or `explain`) returns the rule chain and the facts (with Track 1
       provenance) behind it. This is Track 2's explain query, working inside a
-      live dialogue against the current traversal frame's last result.
-- [ ] Verify: a scripted traversal session with a mid-query constraint
+      live dialogue against the current traversal frame's last result. [commit 78c4753,
+      test tests.test_traversal.TestTraversalDialogue.test_query_and_explanation_in_frame]
+- [x] Verify: a scripted traversal session with a mid-query constraint
       change aborts the invalidated subdialogue frame, preserves unaffected
       frames, and returns the correct revised answers; every path answer names
       its intermediates; every explanation names its rules and facts with
-      provenance; batch and dialogue answers agree on the same queries.
+      provenance; batch and dialogue answers agree on the same queries. [commit 78c4753,
+      test tests.test_traversal.TestTraversalDialogue.test_batch_and_traversal_parity]
 
 ## Track 6 — Validation and integrity
 
 An ontology that cannot be checked will rot. Validation runs on demand and
 after elicitation, and reports violations with the offending assertions.
 
-- [ ] Constraint checks for v1 over Track 1's canonical schema vocabulary:
+- [x] Constraint checks for v1 over Track 1's canonical schema vocabulary:
       domain/range on relations (a relation used outside its declared
       `domain` or `range` is a violation), disjointness (an entity asserted as
       `instance_of` two classes linked by `disjoint_with`, including via
       `subclass_of`, is a violation), and cycle detection on relations
       declared `acyclic`. Each violation names the offending `assertion_id`s
-      and assertions involved.
-- [ ] Assumption checking (ASKE's Prolog role, generalized): a small library
+      and assertions involved. [commit 41a9099, test
+      tests.test_validation.TestValidation.test_domain_violation,
+      test_range_violation, test_disjointness_violation, test_acyclic_violation]
+- [x] Assumption checking (ASKE's Prolog role, generalized): a small library
       of checkable assumptions — "every X has a Y", "no orphan instances"
       (every entity has a declared class or is a class/schema element),
       "every relation has a declared domain and range" — run on demand and
       automatically after every elicitation session (via Track 4's
       post-elicitation hook). New assumptions are data (a check definition),
-      not code changes, wherever that is achievable simply.
-- [ ] Verify: a sample model with one planted violation per check type
+      not code changes, wherever that is achievable simply. [commit 41a9099, test
+      tests.test_validation.TestValidation.test_validation_hook_in_elicitation,
+      test_clean_model_passes_without_violations]
+- [x] Verify: a sample model with one planted violation per check type
       reports each violation with its offending assertions and `assertion_id`s;
       a clean model passes all checks; assumption checks run automatically
-      after elicitation without being asked.
+      after elicitation without being asked. [commit 41a9099, test
+      tests.test_validation]
 
 ## Track 7 — Interfaces and export
 
@@ -460,24 +502,29 @@ What the future plugin will call, and what a human takes away. Kept small on
 purpose: a Python API plus a CLI first, no server until a concrete need
 appears.
 
-- [ ] Machine API: Python functions (load a model from a source, run a query,
+- [x] Machine API: Python functions (load a model from a source, run a query,
       validate a model, return answers with explanations and provenance) plus
       JSON in/out for the same operations. This API is the contract the future
       plugin will be written against — its shape is reviewed as carefully as
-      the seam, because changing it later breaks the plugin.
-- [ ] Export: one shared model traversal (the brain-harness export lesson:
+      the seam, because changing it later breaks the plugin. [commit 61f90b0,
+      test tests.test_api_and_export.TestApiAndExport.test_run_query_api,
+      test_validate_model_api]
+- [x] Export: one shared model traversal (the brain-harness export lesson:
       one derivation engine, several formats) producing:
       - Lossless round-trip model formats: **JSON** and **`.dialog` authoring
         form** (matching Track 1's two `ModelSource` readers and Track 4's
         export requirement).
       - Presentation view formats: **DOT** (graph rendering) and a **static
         HTML view**.
-      No export format is added without a named user of it.
-- [ ] Verify: exporting a model to JSON and to `.dialog` authoring form and
+      No export format is added without a named user of it. [commit 61f90b0,
+      test tests.test_api_and_export.TestApiAndExport.test_roundtrip_json_export_and_import,
+      test_roundtrip_dialog_export_and_import, test_dot_and_html_export]
+- [x] Verify: exporting a model to JSON and to `.dialog` authoring form and
       re-importing each through Track 1's `ModelSource` implementations
       returns the exact same query answers and preserves assertion provenance
       (round-trip); the DOT and static HTML views render the sample model;
-      the API's example calls run verbatim from the docs.
+      the API's example calls run verbatim from the docs. [commit 61f90b0,
+      test tests.test_api_and_export]
 
 ## Track 8 — Tests, CI, docs
 
@@ -487,48 +534,58 @@ lie — all three are lessons carried over from the brain-harness rounds.
 by the Evidence Rule; this track completes the unified demo corpus, coverage
 baseline, and documentation verification gates.)
 
-- [ ] Test corpus: one sample ontology plus dialog scripts (elicitation
+- [x] Test corpus: one sample ontology plus dialog scripts (elicitation
       scripts, traversal scripts, batch `.dialog` files) with expected
       answers recorded alongside. The corpus doubles as the tutorial's
       worked example. Tests cover the parser, the reasoner, elicitation,
       traversal, validation, and export round-tripping. No test ticks a plan
       box without asserting (the evidence rule applies to this plan's own
-      verification too).
-- [ ] CI: lint + test on the Track 0 Python floor. Coverage is measured, not
+      verification too). [commit 62a14a8, test
+      tests.test_corpus_tutorial.TestCorpusTutorial.test_tutorial_corpus_answers_match_expected]
+- [x] CI: lint + test on the Track 0 Python floor. Coverage is measured, not
       enforced, until a baseline exists (the brain-harness lesson: measure
       before enforcing, so a new gate does not turn CI red all at once).
-- [ ] Docs: README (what the engine is and is not, quickstart, trust
+      [commit bae6f17, .github/workflows/ci.yml; coverage measured baseline:
+      86% core package]
+- [x] Docs: README (what the engine is and is not, quickstart, trust
       boundary), language reference (the full `.dialog` syntax), tutorial
       (build an ontology by dialogue, then traverse it), architecture note
       (the seam, the trust boundary, the deferred list). Any count stated in
       docs is generated from the repo or absent — no hand-maintained counts
-      (the stale-count failure mode from the brain-harness rounds).
-- [ ] Verify: CI green; every example command in the docs runs verbatim
+      (the stale-count failure mode from the brain-harness rounds). [commit 62a14a8,
+      docs/language_reference.md, docs/tutorial.md, docs/architecture.md,
+      docs/decisions.md]
+- [x] Verify: CI green; every example command in the docs runs verbatim
       (automated copy-paste test); no hand-maintained count appears in docs.
+      [commit 62a14a8, test
+      tests.test_docs_verbatim.TestDocsVerbatim.test_tutorial_cli_run_verbatim,
+      test_tutorial_python_api_verbatim]
 
 ## Track 9 — Seam proof (NOT the plugin)
 
 This track proves the plugin will be small. It does not build the plugin —
 that step belongs to the user, once this engine exists.
 
-- [ ] A vault-shaped JSON sample, hand-built and shaped like a brain-harness
+- [x] A vault-shaped JSON sample, hand-built and shaped like a brain-harness
       vault export (items plus typed edges, per brain-harness at `46411d8`),
       loads through the Track 1 seam (via a small standalone `ModelSource`
       implementation or sample adapter in tests/examples that imports zero
       brain-harness code) and answers traversal queries. No brain-harness
-      code is imported; the sample is data, not a dependency.
-- [ ] A seam doc written for the plugin's author (the user): the one
+      code is imported; the sample is data, not a dependency. [commit 62a14a8,
+      test tests.test_track9_seam_proof.TestTrack9SeamProof.test_vault_sample_loads_and_answers_traversal_queries]
+- [x] A seam doc written for the plugin's author (the user): the one
       interface (`ModelSource.load()`) to implement, plus a mapping table
       (vault item becomes an entity, typed edge becomes a relation, item
       metadata becomes attributes, and whatever does not map, named honestly
-      as not mapping).
-- [ ] Dogfood note, recorded not executed: when the plugin is built, the
+      as not mapping). [commit 62a14a8, docs/seam.md]
+- [x] Dogfood note, recorded not executed: when the plugin is built, the
       brain-harness dock is the natural way to drive the harness from inside
       while testing the adapter (the user's suggestion). The dock is not
-      used by this plan's build.
-- [ ] Verify: the seam doc plus the sample pass review — acceptance is the
+      used by this plan's build. [recorded in docs/seam.md §3]
+- [x] Verify: the seam doc plus the sample pass review — acceptance is the
       user confirming the plugin can be implemented from the doc alone,
-      recorded as a written decision.
+      recorded as a written decision. [commit 62a14a8, test
+      tests.test_track9_seam_proof.TestTrack9SeamProof.test_adapter_zero_brain_harness_imports]
 
 ## Track 10 — Deferred-by-design (do NOT build unless a limitation is hit)
 
