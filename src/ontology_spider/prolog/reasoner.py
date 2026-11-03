@@ -230,7 +230,6 @@ class PrologReasoner:
 :- elif(exists_source(library(json))).
 :- use_module(library(json)).
 :- endif.
-:- use_module(library(time)).
 
 :- consult('{self.rules_path.as_posix()}').
 :- consult('{facts_file.as_posix()}').
@@ -238,30 +237,19 @@ class PrologReasoner:
 run :-
     catch(
         (
-            call_with_time_limit(
-                {timeout_seconds},
-                (
-                    call_with_inference_limit(
-                        findall(Result, ({goal_str}), RawResults),
-                        {max_inferences},
-                        InferenceStatus
-                    ),
-                    ( InferenceStatus == inference_limit_exceeded ->
-                        json_write(current_output, json([status=inference_limit_exceeded, limit={max_inferences}]))
-                    ;
-                        json_write(current_output, json([status=ok, answers=RawResults]))
-                    )
-                )
+            call_with_inference_limit(
+                findall(Result, ({goal_str}), RawResults),
+                {max_inferences},
+                InferenceStatus
+            ),
+            ( InferenceStatus == inference_limit_exceeded ->
+                json_write(current_output, json([status=inference_limit_exceeded, limit={max_inferences}]))
+            ;
+                json_write(current_output, json([status=ok, answers=RawResults]))
             )
         ),
         Error,
-        (
-            ( Error = time_limit_exceeded ->
-                json_write(current_output, json([status=timeout, limit={timeout_seconds}]))
-            ;
-                json_write(current_output, json([status=error, error=Error]))
-            )
-        )
+        json_write(current_output, json([status=error, error=Error]))
     ),
     nl,
     flush_output,
@@ -282,13 +270,18 @@ run :-
                 "-q",
                 str(runner_file),
             ]
-            proc = subprocess.run(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=max(60, timeout_seconds + 30),
-            )
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise QueryTimeoutError(
+                    f"Prolog query timed out after {timeout_seconds}s"
+                ) from exc
 
             stdout = proc.stdout.strip()
             if not stdout:
