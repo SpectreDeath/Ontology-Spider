@@ -198,7 +198,11 @@ class PrologReasoner:
 
             # Script to run inside SWI-Prolog
             runner_script = f"""
+:- if(exists_source(library(http/json))).
+:- use_module(library(http/json)).
+:- elif(exists_source(library(json))).
 :- use_module(library(json)).
+:- endif.
 :- use_module(library(time)).
 
 :- consult('{self.rules_path.as_posix()}').
