@@ -237,34 +237,45 @@ class PrologReasoner:
 
 run :-
     catch(
-        call_with_time_limit(
-            {timeout_seconds},
-            (
-                call_with_inference_limit(
-                    findall(Result, ({goal_str}), RawResults),
-                    {max_inferences},
-                    InferenceStatus
-                ),
-                ( InferenceStatus == inference_limit_exceeded ->
-                    json_write(current_output, json([status=inference_limit_exceeded, limit={max_inferences}]))
-                ;
-                    json_write(current_output, json([status=ok, answers=RawResults]))
+        (
+            call_with_time_limit(
+                {timeout_seconds},
+                (
+                    call_with_inference_limit(
+                        findall(Result, ({goal_str}), RawResults),
+                        {max_inferences},
+                        InferenceStatus
+                    ),
+                    ( InferenceStatus == inference_limit_exceeded ->
+                        json_write(current_output, json([status=inference_limit_exceeded, limit={max_inferences}]))
+                    ;
+                        json_write(current_output, json([status=ok, answers=RawResults]))
+                    )
                 )
             )
         ),
-        time_limit_exceeded,
-        json_write(current_output, json([status=timeout, limit={timeout_seconds}]))
+        Error,
+        (
+            ( Error = time_limit_exceeded ->
+                json_write(current_output, json([status=timeout, limit={timeout_seconds}]))
+            ;
+                json_write(current_output, json([status=error, error=Error]))
+            )
+        )
     ),
     nl,
     flush_output,
-    halt.
+    halt(0).
+run :-
+    halt(1).
 """
             runner_file = tmppath / "runner.pl"
             runner_file.write_text(runner_script, encoding="utf-8")
 
-            cmd = [self.swipl_path, "-q", "-f", str(runner_file), "-g", "run."]
+            cmd = [self.swipl_path, "-q", "-f", str(runner_file), "-g", "run.", "-t", "halt."]
             proc = subprocess.run(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds + 15,
@@ -297,6 +308,9 @@ run :-
                 raise QueryInferenceLimitError(
                     f"Prolog query exceeded inference cap of {limit} steps"
                 )
+
+            if status == "error":
+                raise PrologExecutionError(f"Prolog error: {data.get('error')}")
 
             raw_answers = data.get("answers", [])
             if len(raw_answers) > self.max_results:
