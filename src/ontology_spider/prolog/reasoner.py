@@ -281,16 +281,16 @@ run :-
                 "-s",
                 str(runner_file),
                 "-g",
-                "run.",
+                "run",
                 "-t",
-                "halt.",
+                "halt",
             ]
             proc = subprocess.run(
                 cmd,
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
-                timeout=timeout_seconds + 15,
+                timeout=max(60, timeout_seconds + 30),
             )
 
             stdout = proc.stdout.strip()
