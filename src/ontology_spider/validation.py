@@ -255,8 +255,14 @@ class OntologyValidator:
         for asrt in model.query(predicate=INSTANCE_OF):
             classes.add(asrt.relation.object)
 
+        schema_entities: set[str] = set()
+        for asrt in model.assertions.values():
+            if asrt.relation.predicate in (DOMAIN, RANGE, ACYCLIC, DISJOINT_WITH):
+                schema_entities.add(asrt.relation.subject)
+                schema_entities.add(asrt.relation.object)
+
         for ent_id in model.entities:
-            if ent_id in classes:
+            if ent_id in classes or ent_id in schema_entities:
                 continue
             inst_asrts = model.query(subject=ent_id, predicate=INSTANCE_OF)
             if not inst_asrts:

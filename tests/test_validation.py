@@ -138,6 +138,17 @@ class TestValidation(unittest.TestCase):
         self.assertIn(s1.assertion_id, offending)
         self.assertIn(s2.assertion_id, offending)
 
+    def test_schema_entities_not_flagged_as_orphan_instances(self):
+        model = OntologyModel(uri="urn:test:schema_entities")
+        p = Provenance(source="test")
+        model.add_assertion(Relation("depends_on", DOMAIN, "system"), p)
+        model.add_assertion(Relation("depends_on", RANGE, "system"), p)
+        model.add_assertion(Relation("subclass_of", ACYCLIC, "true"), p)
+        model.add_assertion(Relation("air", DISJOINT_WITH, "ground"), p)
+
+        violations = self.validator.validate(model)
+        orphan_viols = [v for v in violations if v.check_type == "assumption_violation" and "Orphan instance" in v.message]
+        self.assertEqual(len(orphan_viols), 0)
 
 
 if __name__ == "__main__":

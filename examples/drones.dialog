@@ -1,0 +1,44 @@
+# Ontology-Spider Benchmark: Autonomous Drone Fleet Ontology (v0.2.0)
+dialog urn:ontology:drone_fleet
+
+# First-class Entity Declarations with Attributes
+entity sky_scout [manufacturer=AeroCorp, firmware_version=2.1, max_altitude_m=150]
+entity terra_bot [manufacturer=TerraTech, firmware_version=1.4]
+entity quad_x1   [manufacturer=AeroCorp, firmware_version=3.0, payload_kg=5]
+entity nav_mod   [manufacturer=SensSys, firmware_version=1.0]
+entity gps_mod   [manufacturer=SensSys, firmware_version=2.0]
+
+# Class Hierarchy & Disjointness
+assert system subclass_of entity
+assert vehicle subclass_of system
+assert subsystem subclass_of system
+assert aerial_vehicle subclass_of vehicle
+assert ground_vehicle subclass_of vehicle
+assert delivery_drone subclass_of aerial_vehicle
+assert surveillance_drone subclass_of aerial_vehicle
+assert delivery_drone disjoint_with surveillance_drone
+
+# Relation Constraints
+assert depends_on domain system
+assert depends_on range system
+assert depends_on acyclic true
+
+# Instances and Attributes
+assert sky_scout instance_of delivery_drone [payload_kg=5, max_range_km=30]
+assert quad_x1 instance_of delivery_drone [payload_kg=5, max_range_km=45]
+assert scout_cam instance_of surveillance_drone [resolution_mp=48, max_range_km=60]
+assert terra_bot instance_of ground_vehicle [payload_kg=20, max_range_km=15]
+assert nav_mod instance_of subsystem
+assert gps_mod instance_of subsystem
+
+# Subsystem Dependencies
+assert sky_scout depends_on nav_mod
+assert nav_mod depends_on gps_mod
+assert quad_x1 depends_on nav_mod
+
+# Traversal & Recommendation Queries
+query what is sky_scout?
+query ancestors of delivery_drone
+query transitive depends_on from sky_scout
+query recommend delivery_drone where payload_kg=5
+explain query recommend delivery_drone where payload_kg=5
