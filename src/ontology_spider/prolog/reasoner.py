@@ -122,7 +122,7 @@ class PrologReasoner:
         subject: Optional[str] = None,
         predicate: Optional[str] = None,
         object: Optional[str] = None,
-        timeout_seconds: int = 5,
+        timeout_seconds: int = 10,
         max_inferences: int = 1000000,
     ) -> ReasonerResult:
         """Run a query goal against model facts using SWI-Prolog."""
@@ -225,6 +225,7 @@ run :-
         json_write(current_output, json([status=timeout, limit={timeout_seconds}]))
     ),
     nl,
+    flush_output,
     halt.
 """
             runner_file = tmppath / "runner.pl"
@@ -235,7 +236,7 @@ run :-
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=timeout_seconds + 5,
+                timeout=timeout_seconds + 15,
             )
 
             stdout = proc.stdout.strip()

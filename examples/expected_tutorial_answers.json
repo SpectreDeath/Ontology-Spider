@@ -1,0 +1,32 @@
+{
+  "answers": [
+    {
+      "query": "query what is sky_scout?",
+      "expected_values": [
+        "(sky_scout instance_of delivery_drone)",
+        "(sky_scout depends_on navigation_module)"
+      ]
+    },
+    {
+      "query": "query ancestors of delivery_drone",
+      "expected_values": [
+        "aerial_vehicle",
+        "vehicle",
+        "system"
+      ]
+    },
+    {
+      "query": "query transitive depends_on from sky_scout",
+      "expected_values": [
+        "navigation_module",
+        "gps_sensor"
+      ]
+    },
+    {
+      "query": "query filter instance_of where payload_kg=5",
+      "expected_values": [
+        "(sky_scout instance_of delivery_drone)"
+      ]
+    }
+  ]
+}

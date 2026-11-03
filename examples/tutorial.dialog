@@ -1,0 +1,23 @@
+# Ontology-Spider Tutorial Corpus: Autonomous Vehicle Systems
+dialog urn:ontology:autonomous_vehicles
+
+# Class Hierarchy
+assert vehicle subclass_of system
+assert ground_vehicle subclass_of vehicle
+assert aerial_vehicle subclass_of vehicle
+assert delivery_drone subclass_of aerial_vehicle
+
+# Instances and Attributes
+assert sky_scout instance_of delivery_drone [payload_kg=5, max_range_km=30]
+assert terra_bot instance_of ground_vehicle [payload_kg=20, max_range_km=15]
+
+# System Dependencies
+assert sky_scout depends_on navigation_module
+assert navigation_module depends_on gps_sensor
+
+# Queries
+query what is sky_scout?
+query ancestors of delivery_drone
+query transitive depends_on from sky_scout
+query filter instance_of where payload_kg=5
+explain

@@ -214,12 +214,16 @@ class DialogSession:
             # Match assertions by predicate and attribute
             matching: list[Assertion] = []
             for asrt in self.model.query(predicate=query.predicate):
-                if asrt.attributes.get(query.filter_key) == query.filter_val:
+                val = asrt.attributes.get(query.filter_key)
+                if val is not None and str(val) == str(query.filter_val):
                     matching.append(asrt)
+                    continue
                 # Check entity attributes as well
                 sub_ent = self.model.get_entity(asrt.relation.subject)
-                if sub_ent and str(sub_ent.attributes.get(query.filter_key)) == str(query.filter_val):
-                    matching.append(asrt)
+                if sub_ent:
+                    ent_val = sub_ent.attributes.get(query.filter_key)
+                    if ent_val is not None and str(ent_val) == str(query.filter_val):
+                        matching.append(asrt)
 
             answers = [
                 ReasonerAnswer(

@@ -1,0 +1,41 @@
+{
+  "vault_id": "demo_vault",
+  "items": [
+    {
+      "id": "spec_core",
+      "type": "spec",
+      "metadata": {
+        "title": "Core Engine Specification",
+        "category": "architecture"
+      }
+    },
+    {
+      "id": "spec_seam",
+      "type": "spec",
+      "metadata": {
+        "title": "Seam Interface Specification",
+        "category": "architecture"
+      }
+    },
+    {
+      "id": "impl_plugin",
+      "type": "implementation",
+      "metadata": {
+        "title": "Brain-Harness Plugin Adapter",
+        "category": "integration"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "spec_seam",
+      "rel": "depends_on",
+      "to": "spec_core"
+    },
+    {
+      "from": "impl_plugin",
+      "rel": "depends_on",
+      "to": "spec_seam"
+    }
+  ]
+}

@@ -72,4 +72,5 @@ match_attribute(Entity, Key, Value, AsrtId) :-
 % ------------------------------------------------------------------------------
 
 infinite_loop :-
+    sleep(0.01),
     infinite_loop.
