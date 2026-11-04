@@ -157,24 +157,26 @@ class DialogSession:
         answers: list[ReasonerAnswer] = []
         if query.kind == "ancestors":
             target = query.subject
-            visited = set()
-            queue = [target]
+            visited: set[str] = {target}
+            queue: list[tuple[str, list[str], list[Assertion]]] = [(target, [target], [])]
             while queue:
-                curr = queue.pop(0)
+                curr, path, asrts = queue.pop(0)
                 for pred in ("subclass_of", "instance_of"):
                     for a in self.model.query(subject=curr, predicate=pred):
                         obj = a.relation.object
                         if obj not in visited:
                             visited.add(obj)
-                            queue.append(obj)
+                            new_path = path + [obj]
+                            new_asrts = asrts + [a]
+                            queue.append((obj, new_path, new_asrts))
                             answers.append(
                                 ReasonerAnswer(
                                     value=obj,
                                     explanation=Explanation(
-                                        rules_fired=["degraded_python_fallback"],
-                                        fact_ids=[a.assertion_id],
-                                        path=[target, obj],
-                                        provenance_assertions=[a],
+                                        rules_fired=["ancestor_rule", "degraded_python_fallback"],
+                                        fact_ids=[x.assertion_id for x in new_asrts],
+                                        path=new_path,
+                                        provenance_assertions=new_asrts,
                                     ),
                                 )
                             )
@@ -183,23 +185,25 @@ class DialogSession:
         if query.kind == "transitive":
             target = query.subject
             pred = query.predicate
-            visited = set()
-            queue = [target]
+            visited: set[str] = {target}
+            queue: list[tuple[str, list[str], list[Assertion]]] = [(target, [target], [])]
             while queue:
-                curr = queue.pop(0)
+                curr, path, asrts = queue.pop(0)
                 for a in self.model.query(subject=curr, predicate=pred):
                     obj = a.relation.object
                     if obj not in visited:
                         visited.add(obj)
-                        queue.append(obj)
+                        new_path = path + [obj]
+                        new_asrts = asrts + [a]
+                        queue.append((obj, new_path, new_asrts))
                         answers.append(
                             ReasonerAnswer(
                                 value=obj,
                                 explanation=Explanation(
-                                    rules_fired=["degraded_python_fallback"],
-                                    fact_ids=[a.assertion_id],
-                                    path=[target, obj],
-                                    provenance_assertions=[a],
+                                    rules_fired=["transitive_closure", "degraded_python_fallback"],
+                                    fact_ids=[x.assertion_id for x in new_asrts],
+                                    path=new_path,
+                                    provenance_assertions=new_asrts,
                                 ),
                             )
                         )

@@ -41,6 +41,66 @@ class BrainHarnessVaultSource(ModelSource):
 
 ---
 
+## Track 0 Architectural Decision: Integration Form (Plugin, Skill, or Both)
+
+**Decision**: **Both** (Brain Harness Plugin + Companion Agent Skill).
+
+### Rationale:
+1. **Brain Harness Plugin (`plugins/memory_and_epistemics/ontology_spider`)**:
+   - Implements native micro-kernel IoC integration (`HarnessPlugin`).
+   - Registers service `service.ontology_spider` in the `ServiceContext`.
+   - Houses the concrete `VaultModelSource` adapter that ingests vault/knowledge items and typed edges through the `ModelSource` seam.
+   - Exposes programmatic entrypoints (`load_vault_ontology`, `query_ontology`, `validate_ontology`) executable via the micro-kernel, CLI, runtime tasks, and dock commands (`dock.yaml`).
+   - *What a plugin does that a skill cannot*: Direct in-memory and subprocess RPC service registration in the harness lifecycle without human-in-the-loop prompts.
+2. **Companion Agent Skill (`SKILL.md`)**:
+   - Instructs AI coding agents (Antigravity, Claude Code) how and when to navigate, query, validate, and explain domain ontologies during active paired programming and refactoring sessions.
+   - *What a skill does that a plugin cannot*: Cognitive reasoning heuristics, prompt guidance, and natural-language workflow context for agents.
+3. **Location of Adapter Code**:
+   - The adapter lives entirely on the Brain Harness side: `plugins/memory_and_epistemics/ontology_spider`.
+   - It imports `ontology_spider.seam`, `ontology_spider.model`, and `ontology_spider.api`.
+   - The core `ontology_spider` package remains 100% stdlib-only with zero brain-harness imports.
+4. **Execution Owner**:
+   - Executed by the AI Agent under explicit user direction on 2026-11-03. This formally closes the §11 verification backlog item from the original plan.
+
+---
+
 ## Working Verification Example
 
+### 1. Standalone Verification Adapter
 See `examples/vault_adapter.py` for a complete, fully tested, zero-dependency implementation of `VaultModelSource` operating over `examples/vault_sample.json`.
+
+### 2. Integrated Brain Harness Plugin Adapter
+The production adapter lives on the Brain Harness side:
+- **Adapter**: `Brain Harness/plugins/memory_and_epistemics/ontology_spider/adapter.py` (`HarnessVaultModelSource`)
+- **Service**: `Brain Harness/plugins/memory_and_epistemics/ontology_spider/service.py` (`OntologySpiderService`)
+- **Plugin Manifest**: `Brain Harness/plugins/memory_and_epistemics/ontology_spider/plugin.json`
+- **Companion Skill**: `Brain Harness/plugins/memory_and_epistemics/ontology_spider/SKILL.md`
+
+#### Worked Example: Vault In, Traversal Answers & Proofs Out
+```python
+from plugins.memory_and_epistemics.ontology_spider.service import OntologySpiderService
+
+service = OntologySpiderService()
+vault_path = "examples/vault_sample.json"
+
+# Execute multi-hop transitive dependency traversal
+result = service.query(vault_path, "query transitive depends_on from impl_plugin")
+
+# Extracted answers
+answers = [a["value"] for a in result["answers"]]
+# => ['spec_seam', 'spec_core']
+
+# Proof explanation for spec_core
+spec_core_trace = next(a for a in result["answers"] if a["value"] == "spec_core")
+print("Path:", spec_core_trace["path"])
+# => ['impl_plugin', 'spec_seam', 'spec_core']
+print("Rules:", spec_core_trace["rules_fired"])
+# => ['transitive_closure']
+```
+
+#### Dock Execution Route
+The integration is verified through Brain Harness's Agent Dock:
+```bash
+python -m harness.cli dock run brain-harness verify-ontology
+```
+

@@ -38,6 +38,34 @@ class TestTrack9SeamProof(unittest.TestCase):
         )
         self.assertIn("transitive_closure", core_ans["rules_fired"])
 
+    def test_vault_sample_traversal_in_degraded_mode_without_swipl(self):
+        from ontology_spider.dialog_runner import DialogSession
+        from ontology_spider.prolog.reasoner import PrologReasoner
+
+        source = VaultModelSource(self.sample_json)
+        model = source.load()
+
+        unavailable_reasoner = PrologReasoner(swipl_path="C:\\nonexistent\\swipl.exe")
+        session = DialogSession(
+            model=model,
+            reasoner=unavailable_reasoner,
+            allow_degraded_fallback=True,
+        )
+
+        res = session.run_text(f"dialog {model.uri}\nquery transitive depends_on from impl_plugin")[0]
+        self.assertEqual(res.statement_type, "query")
+        dep_vals = [a.value for a in res.answers]
+        self.assertIn("spec_seam", dep_vals)
+        self.assertIn("spec_core", dep_vals)
+
+        core_ans = next(a for a in res.answers if a.value == "spec_core")
+        self.assertEqual(
+            core_ans.explanation.path,
+            ["impl_plugin", "spec_seam", "spec_core"],
+        )
+        self.assertIn("transitive_closure", core_ans.explanation.rules_fired)
+        self.assertIn("degraded_python_fallback", core_ans.explanation.rules_fired)
+
     def test_adapter_zero_brain_harness_imports(self):
         source_text = self.adapter_file.read_text(encoding="utf-8")
         tree = ast.parse(source_text, filename=str(self.adapter_file))

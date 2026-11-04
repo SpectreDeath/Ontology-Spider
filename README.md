@@ -57,6 +57,13 @@ Ontology-Spider is an end-to-end ontological engine in the lineage of **ASKE Dia
 - **Python**: `>= 3.10` (tested on 3.10, 3.11, 3.12, 3.13 across Ubuntu and Windows)
 - **SWI-Prolog** *(optional)*: Provides high-performance formal logic reasoning. If SWI-Prolog (`swipl`) is not on your `PATH`, Ontology-Spider automatically falls back to an integrated pure-Python graph reasoner.
 
+### Installation
+Install in editable mode:
+```bash
+pip install -e .
+```
+*(Alternative without installation: set `PYTHONPATH=src` or `$env:PYTHONPATH="src;."` before running commands.)*
+
 ### Running Tests & Coverage
 ```bash
 # Run all tests
@@ -142,6 +149,19 @@ if result.explanation:
 json_str = export_model(model, "json")
 html_str = export_model(model, "html")
 ```
+
+---
+
+## Brain Harness Integration
+
+Ontology-Spider connects directly to Brain Harness through the `ModelSource` seam:
+- **Plugin Location**: `Brain Harness/plugins/memory_and_epistemics/ontology_spider/`
+- **Adapter**: `HarnessVaultModelSource` maps Brain Harness vault items, typed edges, and metadata into `OntologyModel`.
+- **Dock Verification**: Exercise the adapter and proof verification via the Brain Harness agent dock:
+  ```bash
+  python -m harness.cli dock run brain-harness verify-ontology
+  ```
+- **Companion Skill**: Bundles `SKILL.md` for agent reasoning workflows, dependency analysis, and prompt heuristics.
 
 ---
 
