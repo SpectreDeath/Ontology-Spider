@@ -259,6 +259,13 @@ def main(argv: list[str] | None = None) -> int:
         "-f", "--file", help="Optional path to preload an ontology into REPL"
     )
 
+    # mcp command
+    mcp_parser = subparsers.add_parser(
+        "mcp", help="Run stdio JSON-RPC 2.0 MCP server"
+    )
+    mcp_parser.add_argument("--read-only", action="store_true", help="Disallow mutating sessions or models")
+    mcp_parser.add_argument("--root", default=str(Path.cwd()), help="Root filesystem sandbox path")
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -271,6 +278,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_elicit(output_path=args.output)
     elif args.command == "repl":
         return run_repl(file_path=args.file)
+    elif args.command == "mcp":
+        from ontology_spider.mcp.server import MCPServer
+        from ontology_spider.mcp.transport import StdioTransport
+        server = MCPServer(transport=StdioTransport(), read_only=args.read_only, root_dir=Path(args.root))
+        server.run()
+        return 0
 
     return 0
 

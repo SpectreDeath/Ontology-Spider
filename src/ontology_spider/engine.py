@@ -174,6 +174,29 @@ class Session:
 
         raise ValueError(f"Unknown statement: {stmt}")
 
+    def assert_triple(
+        self,
+        subject: str,
+        predicate: str,
+        object: str,
+        source: str = "engine",
+        **attributes: Any,
+    ) -> Assertion:
+        prov = Provenance(source=source)
+        return self.model.add_assertion(Relation(subject, predicate, object), prov, **attributes)
+
+    def declare_entity(self, entity_id: str, **attributes: Any) -> Any:
+        return self.model.upsert_entity(entity_id, **attributes)
+
+    def retract_assertion(self, assertion_id: str) -> bool:
+        return self.model.retract_assertion(assertion_id)
+
+    def run_dialog(self, dialog_text: str) -> QueryResult:
+        results = self.execute(dialog_text)
+        if results:
+            return results[-1]
+        return QueryResult(query_text=dialog_text, statement_type="batch", summary="Empty dialog executed.")
+
     def _execute_query(self, query: DialogQuery) -> QueryResult:
         if query.kind == "explain":
             if query.subquery is not None:
@@ -258,6 +281,14 @@ class SessionManager:
         self._sessions[sid] = session
         return session
 
+    def open_session(
+        self,
+        session_id: Optional[str] = None,
+        model: Optional[OntologyModel] = None,
+        reasoner: Optional[Reasoner] = None,
+    ) -> Session:
+        return self.create_session(session_id=session_id, model=model, reasoner=reasoner)
+
     def get_session(self, session_id: str) -> Optional[Session]:
         return self._sessions.get(session_id)
 
@@ -273,6 +304,19 @@ class Engine:
 
     def __init__(self) -> None:
         self.session_manager = SessionManager()
+
+    @property
+    def active_backend_name(self) -> str:
+        prolog = PrologReasoner()
+        return "prolog" if prolog.is_available else "python"
+
+    @property
+    def available_backends(self) -> list[str]:
+        prolog = PrologReasoner()
+        backends = ["python"]
+        if prolog.is_available:
+            backends.append("prolog")
+        return backends
 
     def query(self, model: OntologyModel, query_str: str) -> QueryResult:
         session = Session(model=model)
