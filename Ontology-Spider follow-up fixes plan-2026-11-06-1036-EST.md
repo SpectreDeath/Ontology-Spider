@@ -22,7 +22,7 @@ Tick a box only with the commit + test, dated output, or written decision that s
 Exit gate: the record is honest; nothing is ticked ahead of its evidence.
 
 - [ ] Untick the cycle plan's independent-check box (Track 7) and record this review's verdict in the plan file — it was ticked before the check ran. It stays unticked until this follow-up round's own independent check is accepted.
-- [ ] Record the five Track 0 decisions with reasons in `docs/decisions.md`, not only in the plan file: MCP stdlib hand-roll; Python's `recommend` semantics; implement the README promises; in-memory session writes by default with file writes confined and `--read-only` disabling mutation; harness in-package.
+- [ ] Record the five Track 0 decisions with reasons in `docs/decisions.md`, not only in the plan file: MCP stdlib hand-roll; Python's `recommend` semantics; implement the README promises; harness in-package — and the MCP write default (Argon's recommendation: in-memory session writes by default with file writes confined and `--read-only` disabling mutation). Mark any Track 0 item the user has not signed off — the MCP write default above all — as a recommendation pending user sign-off, not a settled decision. Do not record a recommendation as a decision.
 - [ ] Fix the README's stale numbers: "70 unit tests" becomes the actual suite count at execution time (84 at `881a22a`), and the "90% statement coverage" claim becomes the measured baseline (see Track 1). Prefer a derived count over a hard-coded one where the check allows it; at minimum the numbers must match the suite when this plan lands.
 
 ## Track 1 — CI green: coverage
