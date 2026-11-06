@@ -42,6 +42,32 @@ class TestSeamIsolation(unittest.TestCase):
                     f"Found prohibited brain-harness specific token '{term}' in {file_path.name}",
                 )
 
+    def test_src_imports_are_strictly_stdlib(self):
+        import sys
+        root = Path(__file__).resolve().parent.parent / "src" / "ontology_spider"
+        allowed_modules = set(sys.stdlib_module_names) | {"ontology_spider", "__future__"}
+
+        for py_file in root.rglob("*.py"):
+            source_text = py_file.read_text(encoding="utf-8")
+            tree = ast.parse(source_text, filename=str(py_file))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        top_pkg = alias.name.split(".")[0]
+                        self.assertIn(
+                            top_pkg,
+                            allowed_modules,
+                            f"Non-stdlib import '{alias.name}' found in {py_file.name}",
+                        )
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        top_pkg = node.module.split(".")[0]
+                        self.assertIn(
+                            top_pkg,
+                            allowed_modules,
+                            f"Non-stdlib from-import '{node.module}' found in {py_file.name}",
+                        )
+
 
 if __name__ == "__main__":
     unittest.main()

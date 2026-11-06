@@ -125,10 +125,14 @@ class PrologReasoner:
     def is_available(self) -> bool:
         return bool(self.swipl_path and os.path.isfile(self.swipl_path))
 
+    @property
+    def name(self) -> str:
+        return "prolog"
+
     def query(
         self,
         model: OntologyModel,
-        goal_type: str,
+        goal_type: str | Any = "",
         subject: Optional[str] = None,
         predicate: Optional[str] = None,
         object: Optional[str] = None,
@@ -143,17 +147,38 @@ class PrologReasoner:
                 "SWI-Prolog (swipl) was not found. Please install SWI-Prolog to enable logic reasoning."
             )
 
+        # Support QuerySpec instance passed as goal_type
+        if hasattr(goal_type, "kind"):
+            spec = goal_type
+            g_type = spec.kind
+            s = spec.subject or (spec.object if spec.kind == "recommend" else None)
+            p = spec.predicate
+            o = spec.object
+            rk = spec.filter_key
+            rv = spec.filter_val
+            to = spec.timeout_seconds
+            mi = spec.max_inferences
+        else:
+            g_type = str(goal_type)
+            s = subject
+            p = predicate
+            o = object
+            rk = req_key
+            rv = req_val
+            to = timeout_seconds
+            mi = max_inferences
+
         with self._lock:
             return self._execute_under_lock(
                 model=model,
-                goal_type=goal_type,
-                subject=subject,
-                predicate=predicate,
-                object=object,
-                req_key=req_key,
-                req_val=req_val,
-                timeout_seconds=timeout_seconds,
-                max_inferences=max_inferences,
+                goal_type=g_type,
+                subject=s,
+                predicate=p,
+                object=o,
+                req_key=rk,
+                req_val=rv,
+                timeout_seconds=to,
+                max_inferences=mi,
             )
 
     def _execute_under_lock(
@@ -216,9 +241,18 @@ class PrologReasoner:
                     )
                 else:
                     goal_str = (
-                        f"recommend({s}, Rec, Category, Rules, FactIds), "
-                        f"Result = json([value=Rec, category=Category, rules=Rules, facts=FactIds, path=[{s}, Rec]])"
+                        f"recommend({s}, Rec, Rules, FactIds), "
+                        f"Result = json([value=Rec, rules=Rules, facts=FactIds, path=[{s}, Rec]])"
                     )
+            elif goal_type == "lookup":
+                if not subject:
+                    raise ValueError("Lookup query requires subject")
+                goal_str = (
+                    f"( triple({s}, Pred, Obj, AsrtId), OutS = {s}, OutO = Obj, Path = [{s}, Obj] "
+                    f"; triple(Subj, Pred, {s}, AsrtId), OutS = Subj, OutO = {s}, Path = [Subj, {s}] ), "
+                    f"format(string(Val), '(~w ~w ~w)', [OutS, Pred, OutO]), "
+                    f"Result = json([value=Val, rules=['direct_fact'], facts=[AsrtId], path=Path])"
+                )
             elif goal_type == "pattern":
                 goal_str = (
                     f"triple({s}, {p}, {o}, AsrtId), "
@@ -328,8 +362,16 @@ run :-
                 )
 
             answers: list[ReasonerAnswer] = []
+            seen_answer_values = set()
+
             for item in raw_answers:
                 val = item.get("value")
+                # Deduplicate answers
+                val_key = json.dumps(val, sort_keys=True) if isinstance(val, dict) else str(val)
+                if val_key in seen_answer_values:
+                    continue
+                seen_answer_values.add(val_key)
+
                 rules = item.get("rules", [])
                 facts = item.get("facts", [])
                 path = item.get("path", [])

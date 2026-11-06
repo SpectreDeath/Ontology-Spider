@@ -1,0 +1,11 @@
+{
+  "scenario": "drones",
+  "model": "examples/drones.dialog",
+  "queries": [
+    "query what is sky_scout?",
+    "query ancestors of delivery_drone?",
+    "query transitive depends_on from sky_scout?",
+    "query instance_of delivery_drone [payload_kg=5]?",
+    "query recommend aerial_vehicle [payload_kg=5]"
+  ]
+}

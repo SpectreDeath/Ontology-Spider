@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Union
 
 from ontology_spider.dialog_runner import DialogSession
+from ontology_spider.engine import Engine, QueryResult, Session, SessionManager
 from ontology_spider.export import to_dialog, to_dot, to_html, to_json
 from ontology_spider.model import OntologyModel
 from ontology_spider.seam import DialogModelSource, JsonModelSource, ModelSource
@@ -33,31 +34,10 @@ def load_model(source: Union[str, Path, ModelSource]) -> OntologyModel:
     return DialogModelSource(s).load()
 
 
-def run_query(model: OntologyModel, query_str: str) -> dict[str, Any]:
+def run_query(model: OntologyModel, query_str: str) -> QueryResult:
     """Execute a query against a model, returning answers, explanations, and provenance."""
-    session = DialogSession(model=model)
-    results = session.run_text(f"dialog {model.uri}\n{query_str}")
-    if not results:
-        return {"query": query_str, "status": "no_results", "answers": []}
-
-    res = results[-1]
-    return {
-        "query": query_str,
-        "statement_type": res.statement_type,
-        "summary": res.summary_text,
-        "answers": [
-            {
-                "value": ans.value,
-                "rules_fired": ans.explanation.rules_fired,
-                "path": ans.explanation.path,
-                "fact_ids": ans.explanation.fact_ids,
-                "provenance": [
-                    asrt.to_dict() for asrt in ans.explanation.provenance_assertions
-                ],
-            }
-            for ans in res.answers
-        ],
-    }
+    engine = Engine()
+    return engine.query(model, query_str)
 
 
 def validate_model(model: OntologyModel) -> list[dict[str, Any]]:

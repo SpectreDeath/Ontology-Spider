@@ -200,43 +200,100 @@ class OntologyValidator:
         }
 
         for pred in acyclic_preds:
-            # Build graph for pred
+            # Build graph for pred: node -> list of (target, assertion_id)
             graph: dict[str, list[tuple[str, str]]] = {}
             for asrt in model.query(predicate=pred):
                 graph.setdefault(asrt.relation.subject, []).append(
                     (asrt.relation.object, asrt.assertion_id)
                 )
 
-            seen_cycles: set[frozenset[str]] = set()
+            # Tarjan's Strongly Connected Components (SCC) algorithm O(V + E)
+            index = 0
+            indices: dict[str, int] = {}
+            lowlinks: dict[str, int] = {}
+            on_stack: set[str] = set()
+            stack: list[str] = []
+            sccs: list[list[str]] = []
 
-            def dfs(node: str, path: list[str], edges: list[str], visited_in_path: set[str]) -> None:
-                if node in path:
-                    cycle_start = path.index(node)
-                    cycle_aids = edges[cycle_start:]
-                    cycle_key = frozenset(cycle_aids)
-                    if cycle_key not in seen_cycles:
-                        seen_cycles.add(cycle_key)
-                        violations.append(
-                            Violation(
-                                check_type="cycle_violation",
-                                message=f"Directed cycle detected in relation '{pred}' declared acyclic.",
-                                offending_assertion_ids=cycle_aids,
-                            )
-                        )
-                    return
+            all_nodes = set(graph.keys())
+            for targets in graph.values():
+                for tgt, _ in targets:
+                    all_nodes.add(tgt)
 
-                if node in visited_in_path:
-                    return
+            def strongconnect(v: str) -> None:
+                nonlocal index
+                indices[v] = index
+                lowlinks[v] = index
+                index += 1
+                stack.append(v)
+                on_stack.add(v)
 
-                new_visited = set(visited_in_path)
-                new_visited.add(node)
-                new_path = list(path) + [node]
+                for w, _ in graph.get(v, []):
+                    if w not in indices:
+                        strongconnect(w)
+                        lowlinks[v] = min(lowlinks[v], lowlinks[w])
+                    elif w in on_stack:
+                        lowlinks[v] = min(lowlinks[v], indices[w])
 
-                for next_node, aid in graph.get(node, []):
-                    dfs(next_node, new_path, edges + [aid], new_visited)
+                if lowlinks[v] == indices[v]:
+                    scc = []
+                    while True:
+                        w = stack.pop()
+                        on_stack.remove(w)
+                        scc.append(w)
+                        if w == v:
+                            break
+                    if len(scc) > 1 or any(tgt == v for tgt, _ in graph.get(v, [])):
+                        sccs.append(scc)
 
-            for start_node in graph:
-                dfs(start_node, [], [], set())
+            for node in all_nodes:
+                if node not in indices:
+                    strongconnect(node)
+
+            # For each cyclic SCC, extract a witness cycle
+            for scc in sccs:
+                scc_set = set(scc)
+                # Find a simple cycle inside scc
+                start_node = scc[0]
+                parent_edge: dict[str, tuple[str, str]] = {}  # node -> (parent, asrt_id)
+                queue = [start_node]
+                cycle_edges: list[str] = []
+                found = False
+
+                while queue and not found:
+                    curr = queue.pop(0)
+                    for nxt, aid in graph.get(curr, []):
+                        if nxt not in scc_set:
+                            continue
+                        if nxt == start_node and curr != start_node:
+                            # Reconstruct cycle
+                            cycle_edges = [aid]
+                            trace = curr
+                            while trace != start_node:
+                                prev_node, prev_aid = parent_edge[trace]
+                                cycle_edges.append(prev_aid)
+                                trace = prev_node
+                            cycle_edges.reverse()
+                            found = True
+                            break
+                        elif nxt not in parent_edge and nxt != start_node:
+                            parent_edge[nxt] = (curr, aid)
+                            queue.append(nxt)
+
+                # Self-loop case
+                if not found:
+                    for tgt, aid in graph.get(start_node, []):
+                        if tgt == start_node:
+                            cycle_edges = [aid]
+                            break
+
+                violations.append(
+                    Violation(
+                        check_type="cycle_violation",
+                        message=f"Directed cycle detected in relation '{pred}' declared acyclic.",
+                        offending_assertion_ids=cycle_edges,
+                    )
+                )
 
 
         # 5. Assumption checks

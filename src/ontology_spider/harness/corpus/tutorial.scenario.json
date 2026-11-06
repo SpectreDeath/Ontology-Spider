@@ -1,0 +1,9 @@
+{
+  "scenario": "tutorial",
+  "model": "examples/tutorial.dialog",
+  "queries": [
+    "query what is felix?",
+    "query ancestors of cat?",
+    "query transitive subclass_of from cat?"
+  ]
+}

@@ -48,24 +48,48 @@ ancestor_step(Current, Ancestor, Visited, FinalPath, [AsrtId | RestFactIds]) :-
     ancestor_step(Next, Ancestor, [Next | Visited], FinalPath, RestFactIds).
 
 % ------------------------------------------------------------------------------
-% Recommendations: Shared category / domain inference
-% recommend(+Item, -Recommendation, -SharedCategory, -RulesFired, -FactIds)
+% Subclass closure: reflexive transitive closure over subclass_of
+% subclass_closure(+TargetClass, -AncestorClass, -FactIds)
 % ------------------------------------------------------------------------------
 
-recommend(Item, Recommendation, SharedCategory, [recommend_shared_category], [Asrt1, Asrt2]) :-
-    ( triple(Item, instance_of, SharedCategory, Asrt1)
-    ; triple(Item, subclass_of, SharedCategory, Asrt1) ),
-    ( triple(Recommendation, instance_of, SharedCategory, Asrt2)
-    ; triple(Recommendation, subclass_of, SharedCategory, Asrt2) ),
-    Item \= Recommendation.
+subclass_closure(Class, Class, []).
+subclass_closure(Class, Super, [AsrtId | Rest]) :-
+    triple(Class, subclass_of, Next, AsrtId),
+    subclass_closure(Next, Super, Rest).
 
-% recommend_match(+Class, +Key, +Value, -Candidate, -RulesFired, -FactIds)
-recommend_match(Class, Key, Value, Candidate, [recommend, instance_of_transitive, match_attribute], FactIds) :-
-    ( triple(Candidate, instance_of, Class, Asrt1), FactIds1 = [Asrt1]
-    ; ( triple(Candidate, instance_of, Sub, Asrt1), triple(Sub, subclass_of, Class, AsrtSub), FactIds1 = [Asrt1, AsrtSub] ) ),
-    ( attribute(Candidate, Key, Value)
-    ; attribute(Asrt1, Key, Value) ),
-    FactIds = FactIds1.
+% ------------------------------------------------------------------------------
+% Recommendations: Instances of Class across transitive subclass hierarchy
+% matching all specified attributes
+% ------------------------------------------------------------------------------
+
+entity_has_attr(Entity, AsrtId, Key, Value) :-
+    attribute(Entity, Key, Value),
+    !.
+entity_has_attr(_Entity, AsrtId, Key, Value) :-
+    attribute(AsrtId, Key, Value),
+    !.
+
+matches_all_attrs(_Entity, _AsrtId, []).
+matches_all_attrs(Entity, AsrtId, [Key=Value | Rest]) :-
+    entity_has_attr(Entity, AsrtId, Key, Value),
+    matches_all_attrs(Entity, AsrtId, Rest).
+
+recommend_candidates(Class, AttrList, Candidate, RulesFired, FactIds) :-
+    subclass_closure(TargetClass, Class, SubFacts),
+    triple(Candidate, instance_of, TargetClass, AsrtId),
+    matches_all_attrs(Candidate, AsrtId, AttrList),
+    RulesFired = [recommend, instance_of_transitive, match_attribute],
+    FactIds = [AsrtId | SubFacts].
+
+% Deduplicated recommend query entrypoints
+recommend(Class, Candidate, RulesFired, FactIds) :-
+    recommend_candidates(Class, [], Candidate, RulesFired, FactIds).
+
+recommend_match(Class, Key, Value, Candidate, RulesFired, FactIds) :-
+    recommend_candidates(Class, [Key=Value], Candidate, RulesFired, FactIds).
+
+recommend_multi(Class, AttrList, Candidate, RulesFired, FactIds) :-
+    recommend_candidates(Class, AttrList, Candidate, RulesFired, FactIds).
 
 
 % ------------------------------------------------------------------------------
