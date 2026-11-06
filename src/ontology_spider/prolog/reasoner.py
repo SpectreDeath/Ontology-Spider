@@ -112,6 +112,7 @@ class PrologReasoner:
     """Thread-safe interface to the SWI-Prolog reasoner with process isolation."""
 
     _lock = threading.Lock()
+    _workers: dict[str, PersistentPrologWorker] = {}
 
     def __init__(
         self, swipl_path: Optional[str] = None, max_results: int = 1000
@@ -121,7 +122,6 @@ class PrologReasoner:
         self.max_results = max_results
         self._facts_cache: OrderedDict[tuple[str, int], str] = OrderedDict()
         self._cache_capacity: int = 8
-        self._worker: Optional[PersistentPrologWorker] = None
 
     @property
     def is_available(self) -> bool:
@@ -261,13 +261,17 @@ class PrologReasoner:
         else:
             raise ValueError(f"Unknown goal type: {goal_type}")
 
-        if self._worker is None and self.swipl_path:
-            self._worker = PersistentPrologWorker(self.swipl_path, self.rules_path)
+        if not self.swipl_path:
+            raise PrologUnavailableError("SWI-Prolog not found")
+
+        worker = self._workers.get(self.swipl_path)
+        if worker is None:
+            worker = PersistentPrologWorker(self.swipl_path, self.rules_path)
+            self._workers[self.swipl_path] = worker
 
         try:
-            assert self._worker is not None
-            self._worker.sync_facts(cache_key, facts_text)
-            data = self._worker.execute_goal(goal_str, max_inferences, timeout_seconds)
+            worker.sync_facts(cache_key, facts_text)
+            data = worker.execute_goal(goal_str, max_inferences, timeout_seconds)
         except TimeoutError as exc:
             raise QueryTimeoutError(f"Prolog query timed out after {timeout_seconds}s") from exc
         except Exception as exc:

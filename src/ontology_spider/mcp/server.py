@@ -320,7 +320,7 @@ class MCPServer:
             model_path = args.get("model_path")
             if model_path:
                 resolved = self._resolve_safe_path(model_path)
-                model = DialogModelSource(resolved.read_text(encoding="utf-8"), source_path=str(resolved)).load()
+                model = DialogModelSource(resolved).load()
                 session = self.sessions.open_session(sid, model)
             else:
                 uri = args.get("uri") or f"urn:mcp:{sid}"
@@ -358,7 +358,7 @@ class MCPServer:
 
         if name == "model_load":
             resolved = self._resolve_safe_path(args["path"])
-            loaded = DialogModelSource(resolved.read_text(encoding="utf-8"), source_path=str(resolved)).load()
+            loaded = DialogModelSource(resolved).load()
             for ent in loaded.entities.values():
                 session.model.upsert_entity(ent.id, **dict(ent.attributes))
             for asrt in loaded.assertions.values():
@@ -385,7 +385,7 @@ class MCPServer:
 
         elif name == "run_dialog":
             res = session.run_dialog(args["dialog_text"])
-            return {"content": [{"type": "text", "text": res.text}]}
+            return {"content": [{"type": "text", "text": res.summary}]}
 
         elif name == "query":
             q_res = mgr.query(args["query"])

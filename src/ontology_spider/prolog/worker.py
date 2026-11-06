@@ -57,8 +57,11 @@ handle_line(Line) :-
                 File = Req.get(file),
                 retractall(triple(_, _, _, _)),
                 retractall(attribute(_, _, _)),
-                style_check(-singleton),
-                load_files(File, [silent(true)]),
+                setup_call_cleanup(
+                    open(File, read, Stream, [encoding(utf8)]),
+                    assert_facts_stream(Stream),
+                    close(Stream)
+                ),
                 json_write(current_output, json([status=ok]), [width(0)])
             ; Cmd == "query" ->
                 GoalStr = Req.get(goal),
@@ -86,6 +89,17 @@ handle_line(Line) :-
     ),
     nl,
     flush_output(current_output).
+
+assert_facts_stream(Stream) :-
+    read_term(Stream, Term, []),
+    ( Term == end_of_file ->
+        true
+    ; Term = (:- _) ->
+        assert_facts_stream(Stream)
+    ;
+        assertz(Term),
+        assert_facts_stream(Stream)
+    ).
 
 :- initialization(worker_loop, main).
 """

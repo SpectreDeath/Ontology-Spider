@@ -30,6 +30,14 @@ class Violation:
         asrt_info = f" [assertions: {', '.join(self.offending_assertion_ids)}]" if self.offending_assertion_ids else ""
         return f"[{self.check_type}] {self.message}{asrt_info}"
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "check_type": self.check_type,
+            "message": self.message,
+            "offending_assertion_ids": list(self.offending_assertion_ids),
+            "details": dict(self.details),
+        }
+
 
 @dataclass
 class AssumptionDefinition:
