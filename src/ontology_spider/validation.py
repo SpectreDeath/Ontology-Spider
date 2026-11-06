@@ -71,7 +71,11 @@ class OntologyValidator:
                 asrt.relation.object
             )
 
+        superclass_cache: dict[str, set[str]] = {}
+
         def get_all_superclasses(c: str, visited: Optional[set[str]] = None) -> set[str]:
+            if c in superclass_cache:
+                return superclass_cache[c]
             visited = visited or set()
             supers = set()
             for parent in subclass_parents.get(c, set()):
@@ -79,9 +83,15 @@ class OntologyValidator:
                     visited.add(parent)
                     supers.add(parent)
                     supers.update(get_all_superclasses(parent, visited))
+            superclass_cache[c] = supers
             return supers
 
+        types_cache: dict[str, set[str]] = {}
+        class_members: dict[str, set[str]] = {}
+
         def get_types(entity_id: str) -> set[str]:
+            if entity_id in types_cache:
+                return types_cache[entity_id]
             types = set()
             for asrt in model.query(subject=entity_id, predicate=INSTANCE_OF):
                 cls_name = asrt.relation.object
@@ -90,7 +100,13 @@ class OntologyValidator:
             if entity_id in subclass_parents:
                 types.add(entity_id)
                 types.update(get_all_superclasses(entity_id))
+            types_cache[entity_id] = types
+            for t in types:
+                class_members.setdefault(t, set()).add(entity_id)
             return types
+
+        for ent_id in model.entities:
+            get_types(ent_id)
 
         # 2. Domain and Range constraint checks
         domain_specs: dict[str, list[Assertion]] = {}
@@ -166,31 +182,29 @@ class OntologyValidator:
         for asrt in model.query(predicate=DISJOINT_WITH):
             c1 = asrt.relation.subject
             c2 = asrt.relation.object
-            for ent_id in model.entities:
-                ent_types = get_types(ent_id)
-                if c1 in ent_types and c2 in ent_types:
-                    path1_aids = get_assertions_to_ancestor(ent_id, c1)
-                    path2_aids = get_assertions_to_ancestor(ent_id, c2)
-                    offending = [asrt.assertion_id]
-                    for aid in path1_aids + path2_aids:
-                        if aid not in offending:
-                            offending.append(aid)
-                    # If paths didn't find aids (e.g. orphan), fall back to instance_of
-                    if len(offending) == 1:
-                        for a in model.query(subject=ent_id, predicate=INSTANCE_OF):
-                            if a.assertion_id not in offending:
-                                offending.append(a.assertion_id)
+            overlapping_entities = class_members.get(c1, set()) & class_members.get(c2, set())
+            for ent_id in sorted(overlapping_entities):
+                path1_aids = get_assertions_to_ancestor(ent_id, c1)
+                path2_aids = get_assertions_to_ancestor(ent_id, c2)
+                offending = [asrt.assertion_id]
+                for aid in path1_aids + path2_aids:
+                    if aid not in offending:
+                        offending.append(aid)
+                if len(offending) == 1:
+                    for a in model.query(subject=ent_id, predicate=INSTANCE_OF):
+                        if a.assertion_id not in offending:
+                            offending.append(a.assertion_id)
 
-                    violations.append(
-                        Violation(
-                            check_type="disjointness_violation",
-                            message=(
-                                f"Entity '{ent_id}' is asserted as both '{c1}' and '{c2}', "
-                                f"which are declared disjoint."
-                            ),
-                            offending_assertion_ids=offending,
-                        )
+                violations.append(
+                    Violation(
+                        check_type="disjointness_violation",
+                        message=(
+                            f"Entity '{ent_id}' is asserted as both '{c1}' and '{c2}', "
+                            f"which are declared disjoint."
+                        ),
+                        offending_assertion_ids=offending,
                     )
+                )
 
         # 4. Cycle detection on relations declared acyclic (and subclass_of intrinsically)
         acyclic_preds = {SUBCLASS_OF} | {

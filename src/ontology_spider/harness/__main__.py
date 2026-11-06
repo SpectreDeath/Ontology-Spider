@@ -26,6 +26,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # run command
+    run_parser = subparsers.add_parser("run", help="Run full scenario corpus")
+    run_parser.add_argument("--backend", choices=["prolog", "python", "both"], default="both")
+    run_parser.add_argument("--transport", choices=["inproc", "mcp"], default="inproc")
+    run_parser.add_argument("--dir", default=str(Path(__file__).parent / "corpus"), help="Corpus directory")
+
     # parity command
     parity_parser = subparsers.add_parser("parity", help="Run parity diff between Prolog and Python backends")
     parity_parser.add_argument("--model", default="examples/drones.dialog", help="Model file path")
@@ -33,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     # bench command
     bench_parser = subparsers.add_parser("bench", help="Run performance benchmarks")
     bench_parser.add_argument("--save", help="Optional path to write benchmark json output")
+    bench_parser.add_argument("--budget", help="Optional path to JSON budget file to enforce")
 
     # corpus command
     corpus_parser = subparsers.add_parser("corpus", help="Run parity across all corpus scenarios")
@@ -64,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         print(report.summary())
         return 0 if report.parity_rate == 1.0 else 2
 
-    elif args.command == "corpus":
+    elif args.command in ("corpus", "run"):
         corpus_dir = Path(args.dir)
         scenario_files = list(corpus_dir.glob("*.scenario.json"))
         if not scenario_files:
@@ -98,6 +105,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json_output)
         if args.save:
             Path(args.save).write_text(json_output, encoding="utf-8")
+        if args.budget:
+            budgets = json.loads(Path(args.budget).read_text(encoding="utf-8"))
+            failed = False
+            for k, max_ms in budgets.items():
+                actual = data.get(k)
+                if actual is not None and actual > max_ms:
+                    print(f"Budget exceeded for {k}: {actual}ms > {max_ms}ms", file=sys.stderr)
+                    failed = True
+            if failed:
+                return 2
         return 0
 
     elif args.command == "gen":

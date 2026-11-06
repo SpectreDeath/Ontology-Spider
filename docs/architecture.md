@@ -18,7 +18,8 @@ The seam is a decoupled boundary separating the core reasoner from external stor
 - **Local Trusted Models Only**: v1 is designed for local, trusted models.
 - **Prolog Goal Construction**: User input queries in `.dialog` are parsed into a typed AST and compiled into strict, predefined rule goals with escaped arguments. Raw user input strings are never passed directly to Prolog as arbitrary execution goals.
 - **Prolog I/O Boundary**: Prolog goals in user-authored external rule files can execute standard SWI-Prolog I/O; the engine makes no claim of an uncircumventable sandbox. Workloads requiring untrusted multi-tenant isolation are deferred.
-- **Timeouts & Inference Limits**: Subprocess timeouts (enforced by `subprocess.run(..., timeout=timeout_seconds)`) and in-Prolog inference caps (`call_with_inference_limit/3`) ensure that cyclic data or infinite loops terminate deterministically without locking the process.
+- **Timeouts & Inference Limits**: Subprocess timeouts and in-Prolog inference caps (`call_with_inference_limit/3`) ensure that cyclic data or infinite loops terminate deterministically without locking the process.
+- **MCP Trust Boundary**: File access (`model_load`, `import`, file `export`) is confined to `--root` via `Path.resolve().relative_to(root_dir)`. Mutating tools (`assert_triple`, `declare_entity`, `retract`, `run_dialog`, `focus`, `constrain`) are disabled when started with `--read-only`. Active sessions and assertions per session are bounded (max 32 active sessions, max 50,000 assertions per session).
 
 ---
 

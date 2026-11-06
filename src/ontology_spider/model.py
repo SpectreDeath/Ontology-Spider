@@ -158,6 +158,8 @@ class OntologyModel:
         self._by_subject: dict[str, set[str]] = {}
         self._by_predicate: dict[str, set[str]] = {}
         self._by_object: dict[str, set[str]] = {}
+        self._by_pred_subj: dict[tuple[str, str], set[str]] = {}
+        self._by_pred_obj: dict[tuple[str, str], set[str]] = {}
         self._by_turn: dict[str, set[str]] = {}
 
     @property
@@ -175,6 +177,12 @@ class OntologyModel:
     @property
     def assertions(self) -> Mapping[str, Assertion]:
         return MappingProxyType(self._assertions)
+
+    def iter_entities(self) -> Any:
+        return self._entities.values()
+
+    def iter_assertions(self) -> Any:
+        return self._assertions.values()
 
     def get_outgoing(self, subject: str, predicate: Optional[str] = None) -> list[Assertion]:
         """Fast lookup of outgoing assertions from subject."""
@@ -268,6 +276,8 @@ class OntologyModel:
         self._by_subject.setdefault(relation.subject, set()).add(aid)
         self._by_predicate.setdefault(relation.predicate, set()).add(aid)
         self._by_object.setdefault(relation.object, set()).add(aid)
+        self._by_pred_subj.setdefault((relation.predicate, relation.subject), set()).add(aid)
+        self._by_pred_obj.setdefault((relation.predicate, relation.object), set()).add(aid)
         if provenance.turn_id:
             self._by_turn.setdefault(provenance.turn_id, set()).add(aid)
 
@@ -288,6 +298,10 @@ class OntologyModel:
             self._by_predicate[rel.predicate].discard(assertion_id)
         if rel.object in self._by_object:
             self._by_object[rel.object].discard(assertion_id)
+        if (rel.predicate, rel.subject) in self._by_pred_subj:
+            self._by_pred_subj[(rel.predicate, rel.subject)].discard(assertion_id)
+        if (rel.predicate, rel.object) in self._by_pred_obj:
+            self._by_pred_obj[(rel.predicate, rel.object)].discard(assertion_id)
         if asrt.provenance.turn_id and asrt.provenance.turn_id in self._by_turn:
             self._by_turn[asrt.provenance.turn_id].discard(assertion_id)
 
@@ -310,6 +324,22 @@ class OntologyModel:
         object: Optional[str] = None,
     ) -> list[Assertion]:
         """Query assertions matching the triple pattern."""
+        if subject is not None and predicate is not None and object is None:
+            aids = self._by_pred_subj.get((predicate, subject), set())
+            return [self._assertions[aid] for aid in aids if aid in self._assertions]
+        if object is not None and predicate is not None and subject is None:
+            aids = self._by_pred_obj.get((predicate, object), set())
+            return [self._assertions[aid] for aid in aids if aid in self._assertions]
+        if subject is not None and predicate is None and object is None:
+            aids = self._by_subject.get(subject, set())
+            return [self._assertions[aid] for aid in aids if aid in self._assertions]
+        if predicate is not None and subject is None and object is None:
+            aids = self._by_predicate.get(predicate, set())
+            return [self._assertions[aid] for aid in aids if aid in self._assertions]
+        if object is not None and subject is None and predicate is None:
+            aids = self._by_object.get(object, set())
+            return [self._assertions[aid] for aid in aids if aid in self._assertions]
+
         candidates: Optional[set[str]] = None
 
         if subject is not None:
