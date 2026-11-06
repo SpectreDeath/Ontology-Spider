@@ -169,12 +169,38 @@ class OntologyModel:
         return self._version
 
     @property
-    def entities(self) -> dict[str, Entity]:
-        return dict(self._entities)
+    def entities(self) -> Mapping[str, Entity]:
+        return MappingProxyType(self._entities)
 
     @property
-    def assertions(self) -> dict[str, Assertion]:
-        return dict(self._assertions)
+    def assertions(self) -> Mapping[str, Assertion]:
+        return MappingProxyType(self._assertions)
+
+    def get_outgoing(self, subject: str, predicate: Optional[str] = None) -> list[Assertion]:
+        """Fast lookup of outgoing assertions from subject."""
+        aids = self._by_subject.get(subject)
+        if not aids:
+            return []
+        if predicate is None:
+            return [self._assertions[aid] for aid in aids if aid in self._assertions]
+        return [
+            self._assertions[aid]
+            for aid in aids
+            if aid in self._assertions and self._assertions[aid].relation.predicate == predicate
+        ]
+
+    def get_incoming(self, object: str, predicate: Optional[str] = None) -> list[Assertion]:
+        """Fast lookup of incoming assertions to object."""
+        aids = self._by_object.get(object)
+        if not aids:
+            return []
+        if predicate is None:
+            return [self._assertions[aid] for aid in aids if aid in self._assertions]
+        return [
+            self._assertions[aid]
+            for aid in aids
+            if aid in self._assertions and self._assertions[aid].relation.predicate == predicate
+        ]
 
     def add_entity(self, entity: Entity) -> None:
         """Register or update an entity."""
