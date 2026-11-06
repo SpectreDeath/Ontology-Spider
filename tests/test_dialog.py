@@ -104,6 +104,32 @@ assert feline subclass_of mammal
         self.assertIsNotNone(queries[1].subquery)
         self.assertEqual(queries[1].subquery.kind, "recommend")
 
+    def test_roundtrip_dialog_export_and_reparse(self):
+        from ontology_spider.export import to_dialog
+        from ontology_spider.model import OntologyModel, Relation, Provenance
+
+        model = OntologyModel(uri="urn:test:dialog_export_roundtrip")
+        model.upsert_entity("bare_ent")
+        model.upsert_entity("complex_ent", note="a, b, and c", count=42)
+        p = Provenance(source="test")
+        model.add_assertion(
+            Relation("complex_ent", "relates_to", "bare_ent"),
+            p,
+            assertion_id="asrt_rt1",
+            attributes={"info": "x=y, z=w"},
+        )
+
+        dialog_text = to_dialog(model)
+        source = DialogModelSource(dialog_text)
+        reloaded = source.load()
+
+        self.assertIn("bare_ent", reloaded.entities)
+        self.assertIn("complex_ent", reloaded.entities)
+        self.assertEqual(reloaded.get_entity("complex_ent").attributes["note"], "a, b, and c")
+        self.assertEqual(reloaded.get_entity("complex_ent").attributes["count"], 42)
+        self.assertIn("asrt_rt1", reloaded.assertions)
+        self.assertEqual(reloaded.assertions["asrt_rt1"].attributes["info"], "x=y, z=w")
+
 
 if __name__ == "__main__":
     unittest.main()

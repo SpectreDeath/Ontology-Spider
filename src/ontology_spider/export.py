@@ -27,8 +27,18 @@ def to_dialog(model: OntologyModel) -> str:
         if ent.name and "name" not in attrs:
             attrs["name"] = ent.name
         if attrs:
-            attrs_str = ", ".join(f"{k}={v}" for k, v in attrs.items())
-            lines.append(f"entity {ent.id} [{attrs_str}]")
+            attr_parts = []
+            for k, v in attrs.items():
+                v_str = str(v)
+                if any(c in v_str for c in (",", " ", "[", "]", "=")):
+                    # Quote if containing delimiters
+                    escaped_v = v_str.replace('"', '\\"')
+                    attr_parts.append(f'{k}="{escaped_v}"')
+                else:
+                    attr_parts.append(f"{k}={v_str}")
+            lines.append(f"entity {ent.id} [{', '.join(attr_parts)}]")
+        else:
+            lines.append(f"entity {ent.id}")
 
     lines.append("")
     lines.append("# Assertions")
@@ -44,7 +54,14 @@ def to_dialog(model: OntologyModel) -> str:
         if asrt.provenance.turn_id:
             attrs["_turn"] = asrt.provenance.turn_id
         if attrs:
-            attr_parts = [f"{k}={v}" for k, v in attrs.items()]
+            attr_parts = []
+            for k, v in attrs.items():
+                v_str = str(v)
+                if any(c in v_str for c in (",", " ", "[", "]", "=")):
+                    escaped_v = v_str.replace('"', '\\"')
+                    attr_parts.append(f'{k}="{escaped_v}"')
+                else:
+                    attr_parts.append(f"{k}={v_str}")
             line += f" [{', '.join(attr_parts)}]"
         lines.append(line)
 

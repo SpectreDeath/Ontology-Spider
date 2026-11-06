@@ -58,6 +58,47 @@ class TestSeam(unittest.TestCase):
             if temp_path.is_file():
                 temp_path.unlink()
 
+    def test_import_cycle_detection(self):
+        from ontology_spider.seam import DialogModelSource, ImportCycleError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            file_a = tmppath / "a.dialog"
+            file_b = tmppath / "b.dialog"
+
+            file_a.write_text("dialog urn:a\nimport b.dialog\nassert a_item instance_of entity\n", encoding="utf-8")
+            file_b.write_text("dialog urn:b\nimport a.dialog\nassert b_item instance_of entity\n", encoding="utf-8")
+
+            source = DialogModelSource(file_a)
+            with self.assertRaises(ImportCycleError) as ctx:
+                source.load()
+
+            self.assertIn("Cyclic import detected", str(ctx.exception))
+            self.assertIn("a.dialog", str(ctx.exception))
+            self.assertIn("b.dialog", str(ctx.exception))
+
+    def test_diamond_dag_import_allowed(self):
+        from ontology_spider.seam import DialogModelSource
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            base_file = tmppath / "d.dialog"
+            mod_b = tmppath / "b.dialog"
+            mod_c = tmppath / "c.dialog"
+            top_a = tmppath / "a.dialog"
+
+            base_file.write_text("dialog urn:d\nassert base_item instance_of entity\n", encoding="utf-8")
+            mod_b.write_text("dialog urn:b\nimport d.dialog\nassert b_item instance_of entity\n", encoding="utf-8")
+            mod_c.write_text("dialog urn:c\nimport d.dialog\nassert c_item instance_of entity\n", encoding="utf-8")
+            top_a.write_text("dialog urn:a\nimport b.dialog\nimport c.dialog\nassert a_item instance_of entity\n", encoding="utf-8")
+
+            source = DialogModelSource(top_a)
+            model = source.load()
+            self.assertIn("base_item", model.entities)
+            self.assertIn("b_item", model.entities)
+            self.assertIn("c_item", model.entities)
+            self.assertIn("a_item", model.entities)
+
 
 if __name__ == "__main__":
     unittest.main()

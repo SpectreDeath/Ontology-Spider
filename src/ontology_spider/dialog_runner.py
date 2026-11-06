@@ -28,7 +28,7 @@ from ontology_spider.prolog.reasoner import (
     ReasonerAnswer,
     ReasonerResult,
 )
-from ontology_spider.seam import DialogModelSource, JsonModelSource
+from ontology_spider.seam import DialogModelSource, JsonModelSource, load_imported_model
 
 
 @dataclass
@@ -66,16 +66,7 @@ class DialogSession:
         turn_id = f"turn_{self.turn_counter}"
 
         if isinstance(stmt, DialogImport):
-            target_path = Path(stmt.path)
-            if not target_path.is_absolute():
-                target_path = self.base_dir / target_path
-
-            if target_path.suffix.lower() == ".json":
-                sub_model = JsonModelSource(target_path).load()
-            elif target_path.suffix.lower() == ".dialog":
-                sub_model = DialogModelSource(target_path).load()
-            else:
-                raise ValueError(f"Unsupported model import format: {target_path}")
+            sub_model = load_imported_model(stmt.path, base_dir=self.base_dir)
 
             for ent in sub_model.entities.values():
                 self.model.add_entity(ent)
@@ -89,7 +80,7 @@ class DialogSession:
 
             res = DialogTurnResult(
                 statement_type="import",
-                summary_text=f"Imported model from {target_path.name} ({len(sub_model.assertions)} assertions)",
+                summary_text=f"Imported model from {Path(stmt.path).name} ({len(sub_model.assertions)} assertions)",
             )
             self.history.append(res)
             return res
@@ -97,15 +88,7 @@ class DialogSession:
         if isinstance(stmt, DialogEntityDecl):
             ent_attrs = dict(stmt.attributes)
             name = ent_attrs.pop("name", None)
-            existing = self.model.get_entity(stmt.entity_id)
-            if existing:
-                existing.attributes.update(ent_attrs)
-                if name:
-                    existing.name = name
-            else:
-                self.model.add_entity(
-                    Entity(id=stmt.entity_id, name=name, attributes=ent_attrs)
-                )
+            self.model.upsert_entity(stmt.entity_id, name=name, attributes=ent_attrs)
             res = DialogTurnResult(
                 statement_type="entity",
                 summary_text=f"Declared entity: {stmt.entity_id} with {len(stmt.attributes)} attributes",
@@ -245,14 +228,23 @@ class DialogSession:
             for tc in target_classes:
                 for a in self.model.query(predicate="instance_of", object=tc):
                     cand = a.relation.subject
-                    if query.filter_key and query.filter_val is not None:
-                        val = a.attributes.get(query.filter_key)
+                    attrs_to_check = query.filter_attributes or (
+                        {query.filter_key: query.filter_val}
+                        if query.filter_key and query.filter_val is not None
+                        else {}
+                    )
+                    match_all = True
+                    for fk, fv in attrs_to_check.items():
+                        val = a.attributes.get(fk)
                         if val is None:
                             ent = self.model.get_entity(cand)
                             if ent:
-                                val = ent.attributes.get(query.filter_key)
-                        if val is None or str(val) != str(query.filter_val):
-                            continue
+                                val = ent.attributes.get(fk)
+                        if val is None or str(val) != str(fv):
+                            match_all = False
+                            break
+                    if not match_all:
+                        continue
                     answers.append(
                         ReasonerAnswer(
                             value=cand,

@@ -89,7 +89,7 @@ python -m ontology_spider.cli run examples/drones.dialog
 ### 2. Interactive Conversational REPL (`repl`)
 Launches a multi-turn conversational session with stackable dialogue focus frames:
 ```bash
-python -m ontology_spider.cli repl --model examples/drones.dialog
+python -m ontology_spider.cli repl --file examples/drones.dialog
 ```
 Available REPL commands:
 | Command | Description |
@@ -113,8 +113,8 @@ python -m ontology_spider.cli validate examples/drones.dialog
 ### 4. Model Export (`export`)
 Exports any ontology model source to `json`, `dialog`, `dot`, or `html`:
 ```bash
-python -m ontology_spider.cli export examples/drones.dialog out.html --format html
-python -m ontology_spider.cli export examples/drones.dialog out.json --format json
+python -m ontology_spider.cli export examples/drones.dialog --format html -o out.html
+python -m ontology_spider.cli export examples/drones.dialog --format json -o out.json
 ```
 
 ### 5. Guided Elicitation Interview (`elicit`)
@@ -141,9 +141,9 @@ print(f"Violations: {len(violations)}")
 
 # 3. Query the ontology with proof traces
 result = run_query(model, "query recommend delivery_drone [payload_kg=5]")
-print("Recommended:", result.answers)
-if result.explanation:
-    print("Proof Trace:", result.explanation.to_dict())
+print("Recommended:", [a["value"] for a in result["answers"]])
+for ans in result["answers"]:
+    print("Proof Trace:", ans["rules_fired"], ans["path"])
 
 # 4. Export to other formats
 json_str = export_model(model, "json")
@@ -188,7 +188,7 @@ Ontology-Spider/
 │   ├── tutorial.dialog         # Getting-started tutorial corpus
 │   ├── drones.dialog           # Comprehensive UAV & subsystem benchmark
 │   └── vault_adapter.py        # Reference Seam adapter implementation
-├── tests/                      # 63 unit tests (93% statement coverage)
+├── tests/                      # 70 unit tests (90% statement coverage)
 └── docs/                       # Specifications and reference manuals
     ├── language_reference.md   # .dialog grammar & query syntax
     ├── tutorial.md             # End-to-end tutorial walkthrough
@@ -211,4 +211,4 @@ Ontology-Spider/
 
 ## License
 
-This project is licensed under the Apache 2.0 License.
+This project is licensed under the MIT License.

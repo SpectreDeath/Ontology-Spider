@@ -57,6 +57,7 @@ class DialogQuery:
     object: Optional[str] = None
     filter_key: Optional[str] = None
     filter_val: Optional[str] = None
+    filter_attributes: dict[str, Any] = field(default_factory=dict)
     subquery: Optional[DialogQuery] = None
     raw_text: str = ""
     line_num: int = 1
@@ -73,7 +74,7 @@ class DialogDoc:
 
 
 def _parse_attributes(attr_str: str, line_num: int) -> dict[str, Any]:
-    """Parse key=value pairs inside brackets, e.g. [weight=0.9, category=mammal]."""
+    """Parse key=value pairs inside brackets, respecting quoted strings with commas."""
     attr_str = attr_str.strip()
     if not (attr_str.startswith("[") and attr_str.endswith("]")):
         raise ParseError(
@@ -85,9 +86,39 @@ def _parse_attributes(attr_str: str, line_num: int) -> dict[str, Any]:
     if not content:
         return {}
 
+    # Tokenize comma-separated items respecting quotes
+    items = []
+    current: list[str] = []
+    in_quote: Optional[str] = None
+    escaped = False
+
+    for ch in content:
+        if escaped:
+            current.append(ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            current.append(ch)
+            escaped = True
+            continue
+        if ch in ('"', "'"):
+            if in_quote == ch:
+                in_quote = None
+            elif in_quote is None:
+                in_quote = ch
+            current.append(ch)
+            continue
+        if ch == "," and in_quote is None:
+            items.append("".join(current).strip())
+            current = []
+            continue
+        current.append(ch)
+
+    if current:
+        items.append("".join(current).strip())
+
     attributes: dict[str, Any] = {}
-    for item in content.split(","):
-        item = item.strip()
+    for item in items:
         if not item:
             continue
         if "=" not in item:
@@ -98,15 +129,20 @@ def _parse_attributes(attr_str: str, line_num: int) -> dict[str, Any]:
             )
         k, v = item.split("=", 1)
         k = k.strip()
-        v = v.strip().strip('"').strip("'")
-        # Try numeric conversion
-        try:
-            if "." in v:
-                attributes[k] = float(v)
-            else:
-                attributes[k] = int(v)
-        except ValueError:
-            attributes[k] = v
+        v = v.strip()
+        if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+            v = v[1:-1].replace('\\"', '"').replace("\\'", "'")
+        else:
+            # Try numeric conversion
+            try:
+                if "." in v:
+                    attributes[k] = float(v)
+                else:
+                    attributes[k] = int(v)
+                continue
+            except ValueError:
+                pass
+        attributes[k] = v
     return attributes
 
 
@@ -225,115 +261,124 @@ def parse_dialog(text: str) -> DialogDoc:
         # Query statement:
         if line.startswith("query "):
             query_body = line[6:].strip()
+
+            # Check for trailing inline explain: e.g. "query recommend X [attrs] explain"
+            trailing_explain = False
+            if query_body.lower().endswith(" explain"):
+                query_body = query_body[:-8].strip()
+                trailing_explain = True
+
             # Normalize trailing question mark without stripping standalone wildcard '?'
             if query_body.endswith("?") and not query_body.endswith(" ?"):
                 clean_body = query_body[:-1].strip()
             else:
                 clean_body = query_body
 
+            parsed_query: Optional[DialogQuery] = None
+
             # Pattern 1: what is <X>
             m_what_is = re.match(r"^what\s+is\s+(\S+)$", clean_body, re.IGNORECASE)
             if m_what_is:
-                statements.append(
-                    DialogQuery(
-                        kind="lookup",
-                        subject=m_what_is.group(1),
-                        raw_text=line,
-                        line_num=idx,
-                    )
+                parsed_query = DialogQuery(
+                    kind="lookup",
+                    subject=m_what_is.group(1),
+                    raw_text=line,
+                    line_num=idx,
                 )
-                continue
 
             # Pattern 2: ancestors of <X>
-            m_anc = re.match(r"^ancestors\s+of\s+(\S+)$", clean_body, re.IGNORECASE)
-            if m_anc:
-                statements.append(
-                    DialogQuery(
-                        kind="ancestors",
-                        subject=m_anc.group(1),
-                        raw_text=line,
-                        line_num=idx,
-                    )
+            elif (m_anc := re.match(r"^ancestors\s+of\s+(\S+)$", clean_body, re.IGNORECASE)):
+                parsed_query = DialogQuery(
+                    kind="ancestors",
+                    subject=m_anc.group(1),
+                    raw_text=line,
+                    line_num=idx,
                 )
-                continue
 
             # Pattern 3: transitive <predicate> from <subject>
-            m_trans = re.match(
-                r"^transitive\s+(\S+)\s+from\s+(\S+)$", clean_body, re.IGNORECASE
-            )
-            if m_trans:
-                statements.append(
-                    DialogQuery(
-                        kind="transitive",
-                        predicate=m_trans.group(1),
-                        subject=m_trans.group(2),
-                        raw_text=line,
-                        line_num=idx,
-                    )
+            elif (m_trans := re.match(r"^transitive\s+(\S+)\s+from\s+(\S+)$", clean_body, re.IGNORECASE)):
+                parsed_query = DialogQuery(
+                    kind="transitive",
+                    predicate=m_trans.group(1),
+                    subject=m_trans.group(2),
+                    raw_text=line,
+                    line_num=idx,
                 )
-                continue
 
             # Pattern 4: filter <predicate> where <key>=<val>
-            m_filter = re.match(
-                r"^filter\s+(\S+)\s+where\s+(\S+)\s*=\s*(\S+)$",
-                clean_body,
-                re.IGNORECASE,
-            )
-            if m_filter:
-                statements.append(
-                    DialogQuery(
-                        kind="filter",
-                        predicate=m_filter.group(1),
-                        filter_key=m_filter.group(2),
-                        filter_val=m_filter.group(3).strip('"').strip("'"),
-                        raw_text=line,
-                        line_num=idx,
-                    )
+            elif (m_filter := re.match(r"^filter\s+(\S+)\s+where\s+(\S+)\s*=\s*(\S+)$", clean_body, re.IGNORECASE)):
+                parsed_query = DialogQuery(
+                    kind="filter",
+                    predicate=m_filter.group(1),
+                    filter_key=m_filter.group(2),
+                    filter_val=m_filter.group(3).strip('"').strip("'"),
+                    raw_text=line,
+                    line_num=idx,
                 )
-                continue
 
-            # Pattern 4b: recommend <Class> where <attr> = <val> OR recommend <Class>
-            m_rec = re.match(
-                r"^recommend\s+(\S+)(?:\s+where\s+(\S+)\s*=\s*(\S+))?$",
-                clean_body,
-                re.IGNORECASE,
-            )
-            if m_rec:
-                statements.append(
-                    DialogQuery(
-                        kind="recommend",
-                        object=m_rec.group(1),
-                        filter_key=m_rec.group(2) if m_rec.group(2) else None,
-                        filter_val=m_rec.group(3).strip('"').strip("'")
-                        if m_rec.group(3)
-                        else None,
-                        raw_text=line,
-                        line_num=idx,
-                    )
+            # Pattern 4b: recommend with bracketed attributes: recommend <Class> [key=val, ...]
+            elif clean_body.lower().startswith("recommend ") and "[" in clean_body and clean_body.endswith("]"):
+                rec_part = clean_body[10:].strip()
+                bracket_idx = rec_part.find("[")
+                target_cls = rec_part[:bracket_idx].strip()
+                attr_str = rec_part[bracket_idx:].strip()
+                attrs = _parse_attributes(attr_str, idx)
+                first_k, first_v = (next(iter(attrs.items()))) if attrs else (None, None)
+                parsed_query = DialogQuery(
+                    kind="recommend",
+                    object=target_cls,
+                    filter_key=first_k,
+                    filter_val=str(first_v) if first_v is not None else None,
+                    filter_attributes=attrs,
+                    raw_text=line,
+                    line_num=idx,
                 )
-                continue
 
+            # Pattern 4c: recommend <Class> where <attr> = <val> OR recommend <Class>
+            elif (m_rec := re.match(r"^recommend\s+(\S+)(?:\s+where\s+(\S+)\s*=\s*(\S+))?$", clean_body, re.IGNORECASE)):
+                fk = m_rec.group(2) if m_rec.group(2) else None
+                fv = m_rec.group(3).strip('"').strip("'") if m_rec.group(3) else None
+                fattrs = {fk: fv} if fk and fv is not None else {}
+                parsed_query = DialogQuery(
+                    kind="recommend",
+                    object=m_rec.group(1),
+                    filter_key=fk,
+                    filter_val=fv,
+                    filter_attributes=fattrs,
+                    raw_text=line,
+                    line_num=idx,
+                )
 
             # Pattern 5: general triple pattern query: <subject> <predicate> <object>
-            q_tokens = clean_body.split()
-            if len(q_tokens) == 3:
+            elif len(q_tokens := clean_body.split()) == 3:
                 s, p, o = q_tokens
-                statements.append(
-                    DialogQuery(
-                        kind="pattern",
-                        subject=None if s in ("?", "*", "_") else s,
-                        predicate=None if p in ("?", "*", "_") else p,
-                        object=None if o in ("?", "*", "_") else o,
-                        raw_text=line,
-                        line_num=idx,
-                    )
+                parsed_query = DialogQuery(
+                    kind="pattern",
+                    subject=None if s in ("?", "*", "_") else s,
+                    predicate=None if p in ("?", "*", "_") else p,
+                    object=None if o in ("?", "*", "_") else o,
+                    raw_text=line,
+                    line_num=idx,
                 )
+
+            if parsed_query is not None:
+                if trailing_explain:
+                    statements.append(
+                        DialogQuery(
+                            kind="explain",
+                            subquery=parsed_query,
+                            raw_text=line,
+                            line_num=idx,
+                        )
+                    )
+                else:
+                    statements.append(parsed_query)
                 continue
 
             raise ParseError(
                 idx,
                 f"Unrecognized query syntax: '{query_body}'",
-                "query what is <X>? | query ancestors of <X>? | query transitive <rel> from <X>? | query <S> <P> <O>?",
+                "query what is <X>? | query ancestors of <X>? | query transitive <rel> from <X>? | query recommend <C> [k=v] | query <S> <P> <O>?",
             )
 
         # If line does not match any recognized command:

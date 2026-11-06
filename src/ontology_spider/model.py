@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from types import MappingProxyType
+from typing import Any, Mapping, Optional
 
 # Canonical built-in schema relation vocabulary
 INSTANCE_OF = "instance_of"
@@ -30,7 +32,11 @@ class Entity:
     """An entity (class, instance, or property) in the ontology."""
     id: str
     name: str = ""
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        attrs = dict(self.attributes)
+        object.__setattr__(self, "attributes", MappingProxyType(attrs))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,7 +113,11 @@ class Assertion:
     assertion_id: str
     relation: Relation
     provenance: Provenance
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        attrs = dict(self.attributes)
+        object.__setattr__(self, "attributes", MappingProxyType(attrs))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -139,6 +149,7 @@ class OntologyModel:
 
     def __init__(self, uri: str = "urn:ontology:root") -> None:
         self.uri = uri
+        self._uuid: str = uuid.uuid4().hex
         self._entities: dict[str, Entity] = {}
         self._assertions: dict[str, Assertion] = {}
         self._version: int = 0
@@ -148,6 +159,10 @@ class OntologyModel:
         self._by_predicate: dict[str, set[str]] = {}
         self._by_object: dict[str, set[str]] = {}
         self._by_turn: dict[str, set[str]] = {}
+
+    @property
+    def uuid(self) -> str:
+        return self._uuid
 
     @property
     def version(self) -> int:
@@ -165,6 +180,35 @@ class OntologyModel:
         """Register or update an entity."""
         self._entities[entity.id] = entity
         self._version += 1
+
+    def upsert_entity(
+        self,
+        id: str,
+        name: Optional[str] = None,
+        attributes: Optional[Mapping[str, Any]] = None,
+        **attrs: Any,
+    ) -> Entity:
+        """Add or update an entity immutably, merging attributes and bumping version."""
+        existing = self._entities.get(id)
+        merged_attrs: dict[str, Any] = {}
+        resolved_name = ""
+
+        if existing:
+            merged_attrs.update(existing.attributes)
+            resolved_name = existing.name
+
+        if attributes:
+            merged_attrs.update(attributes)
+        if attrs:
+            merged_attrs.update(attrs)
+
+        if name is not None:
+            resolved_name = name
+
+        new_entity = Entity(id=id, name=resolved_name, attributes=merged_attrs)
+        self._entities[id] = new_entity
+        self._version += 1
+        return new_entity
 
     def get_entity(self, entity_id: str) -> Optional[Entity]:
         return self._entities.get(entity_id)

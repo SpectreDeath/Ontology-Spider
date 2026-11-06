@@ -53,6 +53,36 @@ class TestPrologReasoner(unittest.TestCase):
         self.assertEqual(reconstructed.assertions["a1"].attributes.get("confidence"), 0.95)
         self.assertEqual(reconstructed.get_entity("dog").attributes.get("legs"), 4)
 
+    def test_roundtrip_control_characters_and_newlines(self):
+        model = OntologyModel(uri="urn:test:escaping")
+        multi_line_val = "line1\nline2\r\nline3\twith tabs and 'quotes' and \\backslashes\\"
+        model.upsert_entity("ent_complex", note=multi_line_val)
+        p = Provenance(source="test_escaping")
+        model.add_assertion(
+            Relation("ent_complex", "has_data", "data_node"),
+            p,
+            assertion_id="asrt_esc",
+            attributes={"payload": multi_line_val},
+        )
+
+        facts = model_to_prolog_facts(model)
+        reconstructed = prolog_facts_to_model(facts, uri=model.uri)
+
+        self.assertIn("ent_complex", reconstructed.entities)
+        self.assertEqual(
+            reconstructed.get_entity("ent_complex").attributes["note"],
+            multi_line_val,
+        )
+        self.assertIn("asrt_esc", reconstructed.assertions)
+        self.assertEqual(
+            reconstructed.assertions["asrt_esc"].attributes["payload"],
+            multi_line_val,
+        )
+
+        # Also test with live Prolog query
+        res = self.reasoner.query(model, goal_type="pattern", subject="ent_complex")
+        self.assertEqual(len(res.answers), 1)
+
 
     def test_ancestor_reasoning_and_provenance(self):
         model = OntologyModel(uri="urn:test:ancestry")
@@ -150,7 +180,7 @@ class TestPrologReasoner(unittest.TestCase):
         self.assertEqual(len(self.reasoner._facts_cache), 0)
         self.reasoner.query(model, goal_type="ancestors", subject="cat")
 
-        cache_key = (id(model), model.version)
+        cache_key = (model.uuid, model.version)
         self.assertIn(cache_key, self.reasoner._facts_cache)
 
         # Mutate model -> version changes
@@ -160,8 +190,21 @@ class TestPrologReasoner(unittest.TestCase):
 
         # Query again -> caches new version
         self.reasoner.query(model, goal_type="ancestors", subject="cat")
-        new_cache_key = (id(model), model.version)
+        new_cache_key = (model.uuid, model.version)
         self.assertIn(new_cache_key, self.reasoner._facts_cache)
+
+    def test_facts_cache_bounded_lru(self):
+        # Fill cache past capacity of 8
+        models = [OntologyModel(uri=f"urn:test:lru:{i}") for i in range(12)]
+        p = Provenance(source="test")
+        for i, m in enumerate(models):
+            m.add_assertion(Relation(f"item_{i}", "subclass_of", "root"), p)
+            self.reasoner.query(m, goal_type="ancestors", subject=f"item_{i}")
+
+        self.assertLessEqual(len(self.reasoner._facts_cache), 8)
+        # Most recent model must be in cache, oldest must have been evicted
+        self.assertIn((models[-1].uuid, models[-1].version), self.reasoner._facts_cache)
+        self.assertNotIn((models[0].uuid, models[0].version), self.reasoner._facts_cache)
 
     def test_degraded_python_fallback(self):
         model = OntologyModel(uri="urn:test:degraded")

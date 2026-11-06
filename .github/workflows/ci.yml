@@ -41,3 +41,52 @@ jobs:
         PYTHONPATH: src
       run: |
         python -m unittest discover -s tests
+
+  degraded-mode:
+    name: Degraded Mode (Ubuntu / Python 3.12 / No swipl)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Verify swipl is absent
+      run: |
+        which swipl && exit 1 || echo "swipl is absent as expected"
+
+    - name: Run Tests in Degraded Mode
+      env:
+        PYTHONPATH: src
+      run: |
+        python -m unittest discover -s tests
+
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install SWI-Prolog
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y swi-prolog swi-prolog-nox swi-prolog-packages || sudo apt-get install -y swi-prolog
+
+    - name: Install Coverage
+      run: |
+        python -m pip install --upgrade pip
+        pip install coverage
+
+    - name: Run Tests with Coverage
+      env:
+        PYTHONPATH: src
+      run: |
+        coverage run --source=src/ontology_spider -m unittest discover -s tests
+        coverage report --fail-under=90

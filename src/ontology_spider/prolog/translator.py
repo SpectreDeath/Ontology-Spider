@@ -15,19 +15,53 @@ from ontology_spider.model import (
 
 
 def prolog_safe_string(value: Any) -> str:
-    """Escape and quote an atom or string safely for Prolog."""
+    """Escape and quote an atom or string safely for Prolog, escaping control characters."""
     val_str = str(value)
-    # Escape internal single quotes and backslashes
+    # Escape backslashes first, then single quotes, then control characters
     escaped = val_str.replace("\\", "\\\\").replace("'", "\\'")
+    escaped = (
+        escaped.replace("\r", "\\r")
+        .replace("\n", "\\n")
+        .replace("\t", "\\t")
+    )
     return f"'{escaped}'"
 
 
 def unescape_prolog_atom(atom_str: str) -> str:
-    """Unescape an atom read from Prolog."""
+    """Unescape an atom read from Prolog, restoring control characters."""
     atom_str = atom_str.strip()
     if atom_str.startswith("'") and atom_str.endswith("'") and len(atom_str) >= 2:
         atom_str = atom_str[1:-1]
-    return atom_str.replace("\\'", "'").replace("\\\\", "\\")
+
+    # Process backslash escapes
+    res = []
+    i = 0
+    n = len(atom_str)
+    while i < n:
+        if atom_str[i] == "\\" and i + 1 < n:
+            nxt = atom_str[i + 1]
+            if nxt == "\\":
+                res.append("\\")
+                i += 2
+            elif nxt == "'":
+                res.append("'")
+                i += 2
+            elif nxt == "n":
+                res.append("\n")
+                i += 2
+            elif nxt == "r":
+                res.append("\r")
+                i += 2
+            elif nxt == "t":
+                res.append("\t")
+                i += 2
+            else:
+                res.append(nxt)
+                i += 2
+        else:
+            res.append(atom_str[i])
+            i += 1
+    return "".join(res)
 
 
 def model_to_prolog_facts(model: OntologyModel) -> str:
@@ -112,15 +146,25 @@ def prolog_facts_to_model(
             v = _coerce_attr_val(unescape_prolog_atom(ma.group(3)))
             deferred_attrs.append((target_id, k, v))
 
+    # Group deferred attributes by target_id
+    deferred_by_target: dict[str, dict[str, Any]] = {}
     for target_id, k, v in deferred_attrs:
+        deferred_by_target.setdefault(target_id, {})[k] = v
+
+    for target_id, attrs in deferred_by_target.items():
         if target_id in model.assertions:
-            model.assertions[target_id].attributes[k] = v
+            asrt = model.assertions[target_id]
+            merged_asrt_attrs = dict(asrt.attributes)
+            merged_asrt_attrs.update(attrs)
+            new_asrt = Assertion(
+                assertion_id=asrt.assertion_id,
+                relation=asrt.relation,
+                provenance=asrt.provenance,
+                attributes=merged_asrt_attrs,
+            )
+            model._assertions[target_id] = new_asrt
         else:
-            existing = model.get_entity(target_id)
-            if existing:
-                existing.attributes[k] = v
-            else:
-                model.add_entity(Entity(id=target_id, attributes={k: v}))
+            model.upsert_entity(target_id, attributes=attrs)
 
     return model
 

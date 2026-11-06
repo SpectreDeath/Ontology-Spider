@@ -190,10 +190,17 @@ def run_repl(file_path: Optional[str] = None) -> int:
                 print(f"Export error: {err}", file=sys.stderr)
             continue
 
+        if line.lower() == "explain":
+            print(traversal.explain())
+            continue
+
         try:
             doc = parse_dialog(f"dialog {traversal.model.uri}\n{line}")
             for stmt in doc.statements:
-                res = traversal.session.execute_statement(stmt)
+                if stmt.__class__.__name__ == "DialogQuery":
+                    res = traversal.query(line)
+                else:
+                    res = traversal.session.execute_statement(stmt)
                 print(res.summary_text)
                 if res.statement_type == "query":
                     for ans in res.answers:

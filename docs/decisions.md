@@ -44,9 +44,9 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Decision**: SWI-Prolog via a zero-Python-dependency `swipl` CLI/subprocess bridge with in-Prolog timeouts and process lifecycle management.
 - **Comparison**:
   - `PySWIP` uses C FFI (`ctypes`) binding against `libswipl`. On Windows and Python 3.13 with SWI-Prolog 10.x, PySWIP is notoriously brittle (DLL lookup failures, thread safety lockouts, inability to cleanly interrupt C execution from Python threads).
-  - A dedicated `swipl` subprocess bridge communicates via standard streams / batch scripts. It requires zero pip dependencies, handles SWI-Prolog 10.0.2 out of the box, cleanly enforces timeouts using SWI-Prolog's internal `call_with_time_limit/2`, and prevents engine memory pollution by ensuring dynamic facts are explicitly scoped or run in isolated invocations.
+  - A dedicated `swipl` subprocess bridge communicates via standard streams / batch scripts. It requires zero pip dependencies, handles SWI-Prolog 10.0.2 out of the box, cleanly enforces subprocess timeouts via `subprocess.run(timeout=...)` alongside internal `call_with_inference_limit/3`, and prevents engine memory pollution by ensuring dynamic facts are explicitly scoped or run in isolated invocations.
 - **Fallback when SWI-Prolog is not installed**:
-  - Degraded mode: In-memory triple storage, model loading, validation (such as simple cycle checks and domain/range checks), and `.dialog` parsing/export continue to function. If a deductive reasoning or assumption-checking query requiring Prolog is invoked, the engine returns a clean, structured diagnostic notifying the user that SWI-Prolog (`swipl`) is required for logic reasoning.
+  - Degraded mode: In-memory triple storage, model loading, validation (such as simple cycle checks and domain/range checks), and `.dialog` parsing/export continue to function. If deductive reasoning or assumption-checking queries are invoked when `swipl` is unavailable, the engine falls back to an integrated pure-Python graph reasoner (BFS transitive closure and ancestry traversal) with proof traces.
 
 ---
 

@@ -114,11 +114,7 @@ class ElicitationManager:
             if clean.lower() in ("y", "yes", "confirm"):
                 reconf_turn.confirmed = True
                 for ent_id, ent_attrs in reconf_turn.proposed_entities.items():
-                    existing = self.model.get_entity(ent_id)
-                    if existing:
-                        existing.attributes.update(ent_attrs)
-                    else:
-                        self.model.add_entity(Entity(id=ent_id, attributes=dict(ent_attrs)))
+                    self.model.upsert_entity(ent_id, attributes=ent_attrs)
                 for asrt in reconf_turn.proposed_assertions:
                     self.model.add_assertion(
                         relation=asrt.relation,
@@ -428,11 +424,7 @@ class ElicitationManager:
                 if self.pending_turn:
                     self.pending_turn.confirmed = True
                     for ent_id, ent_attrs in self.pending_turn.proposed_entities.items():
-                        existing = self.model.get_entity(ent_id)
-                        if existing:
-                            existing.attributes.update(ent_attrs)
-                        else:
-                            self.model.add_entity(Entity(id=ent_id, attributes=dict(ent_attrs)))
+                        self.model.upsert_entity(ent_id, attributes=ent_attrs)
 
                     for asrt in self.pending_turn.proposed_assertions:
                         self.model.add_assertion(

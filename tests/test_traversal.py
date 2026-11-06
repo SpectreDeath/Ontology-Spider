@@ -84,7 +84,7 @@ class TestTraversalDialogue(unittest.TestCase):
         prov = Provenance(source="test_traversal")
         self.model.add_assertion(Relation("bolt", INSTANCE_OF, "electric_car"), prov)
         self.model.add_entity(Entity(id="bolt", attributes={"fuel": "electric", "range_km": 380}))
-        self.model.get_entity("leaf").attributes["range_km"] = 250
+        self.model.upsert_entity("leaf", range_km=250)
 
         # Change constraint range_km=380 in root frame
         manager.change_constraint("range_km", "380")
@@ -93,6 +93,27 @@ class TestTraversalDialogue(unittest.TestCase):
         res = manager.query("query recommend electric_car")
         self.assertEqual(len(res.answers), 1)
         self.assertEqual(res.answers[0].value, "bolt")
+        self.assertIn("filtered_by_frame_constraints", res.answers[0].explanation.rules_fired)
+
+    def test_multi_constraint_post_filter_enforces_all_constraints(self):
+        # D8 proof: traversal post-filter at traversal.py:145 enforces ALL active frame constraints
+        manager = TraversalDialogueManager(model=self.model)
+        prov = Provenance(source="test_d8")
+        self.model.add_assertion(Relation("car_a", INSTANCE_OF, "electric_car"), prov)
+        self.model.add_assertion(Relation("car_b", INSTANCE_OF, "electric_car"), prov)
+        self.model.add_assertion(Relation("car_c", INSTANCE_OF, "electric_car"), prov)
+
+        self.model.upsert_entity("car_a", fuel="electric", seats="4", color="red")
+        self.model.upsert_entity("car_b", fuel="electric", seats="4", color="blue")
+        self.model.upsert_entity("car_c", fuel="electric", seats="2", color="red")
+
+        manager.change_constraint("seats", "4")
+        manager.change_constraint("color", "red")
+
+        # Both seats=4 AND color=red must be satisfied -> only car_a matches
+        res = manager.query("query recommend electric_car")
+        self.assertEqual(len(res.answers), 1)
+        self.assertEqual(res.answers[0].value, "car_a")
         self.assertIn("filtered_by_frame_constraints", res.answers[0].explanation.rules_fired)
 
     def test_inline_explain_execution(self):

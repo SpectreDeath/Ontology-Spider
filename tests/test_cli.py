@@ -111,6 +111,7 @@ assert b subclass_of a
             "export dialog",
             "export invalid_format_xyz",
             "query what is car?",
+            "explain",
             "malformed syntax %%%",
             "quit",
         ]

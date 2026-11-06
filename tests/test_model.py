@@ -96,6 +96,30 @@ class TestModel(unittest.TestCase):
         self.assertEqual(asrt.provenance.parent_turn_ids, ("t0",))
         self.assertEqual(asrt.attributes["weight"], 0.95)
 
+    def test_upsert_entity_and_immutability(self):
+        model = OntologyModel(uri="urn:test:upsert")
+        ent = model.upsert_entity("sky_scout", name="Sky Scout v1", payload_kg=5)
+        self.assertEqual(ent.name, "Sky Scout v1")
+        self.assertEqual(ent.attributes["payload_kg"], 5)
+        self.assertEqual(model.version, 1)
+
+        # In-place mutation must raise TypeError
+        with self.assertRaises(TypeError):
+            ent.attributes["payload_kg"] = 10
+
+        # Upsert with new attributes merges and bumps version
+        ent2 = model.upsert_entity("sky_scout", range_km=25)
+        self.assertEqual(ent2.name, "Sky Scout v1")
+        self.assertEqual(ent2.attributes["payload_kg"], 5)
+        self.assertEqual(ent2.attributes["range_km"], 25)
+        self.assertEqual(model.version, 2)
+
+        # Name override
+        ent3 = model.upsert_entity("sky_scout", name="Sky Scout v2")
+        self.assertEqual(ent3.name, "Sky Scout v2")
+        self.assertEqual(ent3.attributes["range_km"], 25)
+        self.assertEqual(model.version, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

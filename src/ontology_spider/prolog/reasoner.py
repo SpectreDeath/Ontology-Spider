@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -117,7 +118,8 @@ class PrologReasoner:
         self.swipl_path = swipl_path or find_swipl_executable()
         self.rules_path = Path(__file__).parent / "rules.pl"
         self.max_results = max_results
-        self._facts_cache: dict[tuple[int, int], str] = {}
+        self._facts_cache: OrderedDict[tuple[str, int], str] = OrderedDict()
+        self._cache_capacity: int = 8
 
     @property
     def is_available(self) -> bool:
@@ -166,12 +168,17 @@ class PrologReasoner:
         timeout_seconds: int,
         max_inferences: int,
     ) -> ReasonerResult:
-        cache_key = (id(model), getattr(model, "version", 0))
+        model_uuid = getattr(model, "uuid", str(id(model)))
+        cache_key = (model_uuid, getattr(model, "version", 0))
         if cache_key in self._facts_cache:
             facts_text = self._facts_cache[cache_key]
+            self._facts_cache.move_to_end(cache_key)
         else:
             facts_text = model_to_prolog_facts(model)
             self._facts_cache[cache_key] = facts_text
+            self._facts_cache.move_to_end(cache_key)
+            if len(self._facts_cache) > self._cache_capacity:
+                self._facts_cache.popitem(last=False)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
