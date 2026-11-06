@@ -19,6 +19,21 @@ The independent check reproduced the defects from code (own probes in /tmp, noth
 - **Probe evidence is not repo-verifiable.** The note's probe files (`scratch/probe.py`, `scratch/parity.py`) live in Antigravity's scratch pad on the laptop, not in the repo. This plan's verification relies on the repo's own tests and harness, not on the note's probes.
 - **The note does not mention the dock `verify-ontology` entrypoint.** Track 7 includes it as a verification step.
 
+## Argon Review — Additional Joints & Hidden Defects Found in Code (2026-11-06)
+
+A full pass over `src/`, `tests/`, `docs/`, and `examples/` surfaced seven structural joints that an executor would hit if left implicit:
+
+1. **D1/D2 has four callsites, not two.** Beyond `seam.py:115-117` and `dialog_runner.py:102-104`, in-place attribute mutation also happens in `elicitation.py:118-119`, `elicitation.py:432-433` (`existing.attributes.update(ent_attrs)`), and `prolog/translator.py:117,121` (`model.assertions[target_id].attributes[k] = v` and `existing.attributes[k] = v`). Once `Entity.attributes` / `Assertion.attributes` are wrapped in `MappingProxyType`, all four will raise `TypeError` unless migrated to `upsert_entity` / builder construction.
+2. **D9 (new): `cli.py:run_repl` bypasses `TraversalDialogueManager.query()` and `explain()`.** At `cli.py:194-200`, the REPL loop parses input and calls `traversal.session.execute_statement(stmt)` directly instead of `traversal.query(line)` / `traversal.explain()`. As a result, `focus <entity>` and `constrain <k>=<v>` have zero effect on queries run in the CLI REPL, `current_frame.query_goal` stays `'none'`, and the `docs/tutorial.md` §3 REPL transcript cannot be reproduced via `dialog repl`. Track 1 fixes `cli.py:run_repl` and adds a REPL traversal test.
+3. **D10 (new): `README.md` Python API snippet crashes against `api.run_query`.** `README.md:143-146` accesses `result.answers` and `result.explanation.to_dict()`, whereas `api.py:36-60` returns a plain `dict` (`result["answers"]`) and `Explanation` has no `.to_dict()` method. Track 1 fixes the README snippet and extends `test_docs_verbatim.py` to execute Python code blocks as well as `.dialog` blocks; Track 3 ensures the unified `QueryResult` supports both attribute access and `dict`-key compatibility (`__getitem__`) so existing callers (`docs/tutorial.md`, `test_api_and_export.py`, Brain-Harness plugin) do not break.
+4. **D3 (`recommend` parity) has three distinct divergences in `rules.pl`, not one:**
+   - *No-filter semantics:* `rules.pl:55-60` (`recommend/5`) finds peers sharing a parent/class with `X` (including subclasses), whereas Python (`dialog_runner.py:233-267`) finds `instance_of` candidates across the transitive `subclass_of` closure of `X`.
+   - *1-hop vs. N-hop `subclass_of`:* `rules.pl:65` (`recommend_match/6`) checks only a single `subclass_of` hop (`triple(Sub, subclass_of, Class, AsrtSub)`), whereas Python traverses the full multi-hop `subclass_of` closure. Querying `recommend vehicle where payload_kg=5` on `examples/drones.dialog` (`delivery_drone -> aerial_vehicle -> vehicle`) succeeds in Python and returns nothing in Prolog.
+   - *Duplicate candidate emission:* `rules.pl:66-67` uses an un-deduplicated disjunction `( attribute(Candidate, Key, Value) ; attribute(Asrt1, Key, Value) )`. When an attribute is present on both the `entity` declaration and the `instance_of` assertion (as `quad_x1` is in `examples/drones.dialog:7,28`), Prolog emits `quad_x1` twice while Python emits it once.
+5. **Diamond-graph path parity & exponential blowup bridge Track 3 and Track 5.** In `rules.pl:14-48`, `transitive_path/6` and `ancestor_of/5` enumerate *all simple paths* via DFS (`Visited` is per-path). On a diamond DAG (`A -> B -> D`, `A -> C -> D`), Prolog emits `D` twice while Python's BFS (`dialog_runner.py:160,188`) emits `D` once with the shortest path; on a lattice (`harness gen lattice`), Prolog enumerates $O(2^N)$ paths until hitting `max_inferences`. Defining canonical query semantics in Track 3 (`docs/semantics.md`) as deduplicated target answers with canonical shortest/first proof paths resolves both the Track 3 parity failure on DAGs and the Track 5 exponential path blowup.
+6. **D4 cycle detection must track the active import call stack, not a global visited set.** A shared `visited` set across sibling imports would falsely reject valid diamond DAG imports (`A` imports `B` and `C`; both import `D`). `DialogModelSource` must pass an immutable per-branch `import_chain: tuple[Path, ...]` of resolved absolute paths so only true cycles (`p in import_chain`) raise `ImportCycleError`.
+7. **`to_dialog` round-trip gaps (Track 2 property check prerequisite).** `export.py:25-32` (`to_dialog`) omits `entity <id>` lines when `ent.attributes` and `ent.name` are empty, dropping bare entities on `.dialog` round-trip. Also, `_parse_attributes` (`dialog.py:89`) splits naively on `,`, breaking if an attribute string contains a comma. Fixing both in Track 1/2 guarantees the Track 2 property check (*"dialog export re-parses to an equal model"*) holds generally.
+
 ## Evidence rule
 
 Tick a box only with the commit + test, dated output, or written decision that supports it. Do not weaken items silently — preserve each item or record a decision to decline it with a reason. (An executor checking its own work is no check at all; the independent check after execution is never dropped.)
@@ -34,32 +49,33 @@ Tick a box only with the commit + test, dated output, or written decision that s
 
 ## Track 0 — Decisions (gate the build)
 
-Settle these before execution, with reasons recorded. Argon reviews this plan; the user decides.
+Settle these before execution, with reasons recorded. Argon reviews this plan; the user decides. *(Argon recommendations included below for user sign-off.)*
 
-- [ ] **MCP implementation.** (a) Hand-roll the stdio MCP server in stdlib (assessment recommendation; guardrail intact, protocol surface is small), (b) official MCP SDK as an optional extra (`pip install ontology-spider[mcp]`, core stays dependency-free), or (c) both: stdlib stdio now, SDK-backed HTTP transport later. Record the decision with reasons.
-- [ ] **Canonical `recommend` semantics (D3).** Prolog's no-filter `recommend X` means "things sharing a category with X"; Python's means "instances of class X, through the subclass closure" (the README examples imply the second). Record which is canonical; the other backend changes to match. This gates the D3 fix in Track 3.
-- [ ] **README promises.** Implement multi-attribute `recommend X [k=v, ...]` and inline `explain` (recommended — the README already promises them and agents will want them), or trim the README. Record the decision.
-- [ ] **MCP write access.** Default to `--read-only` with opt-in writes, or allow writes by default. Record the decision.
-- [ ] **Harness home.** Ship the harness inside the package (`ontology_spider.harness`, usable by agents and Brain Harness; recommended) or keep it under `tests/` only. Record the decision.
+- [ ] **MCP implementation.** (a) Hand-roll the stdio MCP server in stdlib (assessment + Argon recommendation; preserves `dependencies = []`, avoids `pydantic`/`anyio` dependency trees, and stdio JSON-RPC 2.0 is ~300 LOC with clean dispatcher separation), (b) official MCP SDK as an optional extra (`pip install ontology-spider[mcp]`, core stays dependency-free), or (c) both: stdlib stdio now, SDK-backed HTTP transport later. Record the decision with reasons.
+- [ ] **Canonical `recommend` semantics (D3).** Prolog's no-filter `recommend X` means "things sharing a category with X"; Python's means "instances of class X, through the transitive `subclass_of` closure" (Argon recommendation: **Python's semantics**, as `examples/drones.dialog`, `README.md`, and `docs/language_reference.md` §3 all define `recommend <Class>` as recommending candidates belonging to `<Class>` or its subclasses; optionally preserve peer-similarity as a separate query or rule if ever needed). Record which is canonical; the other backend changes to match. This gates the D3 fix in Track 3.
+- [ ] **README promises.** Implement multi-attribute `recommend X [k=v, ...]` (alongside existing `where k=v`) and trailing inline `query ... explain` (alongside existing `explain query ...`) (Argon recommendation: **implement both in parser + runner** — the grammar surface is ~25 LOC in `dialog.py`, `README.md` already advertises them, and supporting multi-attribute filters here cleanly unifies with Track 6's multi-constraint `recommend`), or trim the README. Record the decision.
+- [ ] **MCP write access.** Default to `--read-only` with opt-in `--allow-writes` / write flag, or allow writes by default with `--read-only` lock-down (Argon recommendation: **allow in-memory session writes by default, confine file writes, and honor `--read-only` to disable all mutation tools** — because interactive conversational sessions (`session_open` -> `assert_triple` / `run_dialog` / `focus` / `constrain`) are stateful in-memory workflows by design, whereas disk mutations should remain off or confined to `--root`). Record the decision.
+- [ ] **Harness home.** Ship the harness inside the package (`ontology_spider.harness`, usable by `python -m ontology_spider.harness`, agents, and Brain Harness; Argon recommendation) or keep it under `tests/` only. Record the decision.
 
 ## Track 1 — Phase 0: Stabilize (1–2 days, no dependencies)
 
-Exit gate: D1, D2, D4, D5, D7 fixed with regression tests; docs match behavior; CI has a degraded-mode job.
+Exit gate: D1, D2, D4, D5, D7, D9, D10 fixed with regression tests; docs match behavior; CI has a degraded-mode job.
 
-- [ ] D1/D2: add `OntologyModel.upsert_entity(id, name=None, **attrs)`, building a new frozen `Entity` and bumping the version. Expose entity attributes via `MappingProxyType` (or copy on read) so in-place mutation fails loudly. Remove the in-place `existing.name` / `existing.attributes.update(...)` paths in `seam.py` and `dialog_runner.py`.
-- [ ] D1/D2 regression tests: re-declare an entity with `name=` and with changed attributes; assert no `FrozenInstanceError`, the version is bumped, and Prolog answers reflect the new attributes (no stale cache).
-- [ ] D4: track visited import paths (resolved, absolute) in `DialogModelSource.load`; raise `ImportCycleError` naming the chain. Pull the import logic shared by `seam.py` and `dialog_runner.py` into one place.
-- [ ] D4 regression test: cyclic imports (a imports b, b imports a) raise `ImportCycleError`, not `RecursionError`.
-- [ ] D5: key the facts cache by a model-owned uuid plus version; bound it with an LRU of about 8 entries.
-- [ ] D5 regression test: the cache is bounded, and a new model never receives another model's facts.
-- [ ] D7: escape `\n`, `\r`, `\t` and control characters in `prolog_safe_string`; harden `prolog_facts_to_model` against multi-line facts so a value containing a newline cannot silently drop an attribute or entity on round-trip.
-- [ ] D7 regression tests: round-trip a value containing newline/control characters through Prolog facts and back.
-- [ ] Docs: fix the README `recommend` examples to the syntax the parser accepts (or implement per the Track 0 decision); fix the `repl` flag (`-f/--file`); fix `export` (`-o/--output`, no positional output); fix the license line to MIT; fix "63 unit tests" to the real count.
-- [ ] Docs: fix the stale `call_with_time_limit/2` claim in `architecture.md` and in `docs/decisions.md` §4.
-- [ ] Docs: extend `test_docs_verbatim` so every README dialog code block gets parsed (it currently covers only `examples/tutorial.dialog` and one `tutorial.md` snippet).
-- [ ] CI: add an ubuntu / 3.12 / no-swipl job. Degraded mode must be verified by CI, not by hand.
-- [ ] CI: measure the coverage baseline first (the README's "93%" is unverified — no coverage measurement exists); record the real number; only then add a `coverage --fail-under=90` step.
-- [ ] D8 explicitly not a defect: record that the `traversal.py:145` post-filter enforces all frame constraints; do not touch the post-filter. (The redundant first-constraint injection may be tidied only if a test proves the post-filter alone is sufficient.)
+- [ ] D1/D2: add `OntologyModel.upsert_entity(id, name=None, **attrs)` (and/or `attributes: Mapping`), building a new frozen `Entity` (merging existing attributes + name unless overridden) and bumping `self._version`. Expose `Entity.attributes` and `Assertion.attributes` via `MappingProxyType` (or copy-on-init + read-only proxy) so in-place mutation fails loudly with `TypeError`. Remove **all four** in-place mutation paths: `seam.py:115-117`, `dialog_runner.py:102-104`, `elicitation.py:118-119,432-433`, and `prolog/translator.py:117,121`.
+- [ ] D1/D2 regression tests: re-declare an entity with `name=` and with changed attributes; assert no `FrozenInstanceError`, direct `.attributes[k] = v` raises `TypeError`, `model.version` is bumped, and Prolog answers reflect the updated attributes (no stale cache).
+- [ ] D4: track the active per-branch import stack (`import_chain: tuple[Path, ...]` of resolved absolute paths) in a single shared loader used by both `DialogModelSource.load` (`seam.py`) and `DialogSession.execute_statement` (`dialog_runner.py`); raise `ImportCycleError` naming the full cycle chain (`a.dialog -> b.dialog -> a.dialog`) while allowing non-cyclic diamond DAG imports (`A -> B -> D`, `A -> C -> D`).
+- [ ] D4 regression test: cyclic imports (`a` imports `b`, `b` imports `a`) raise `ImportCycleError` (not `RecursionError`); diamond imports succeed without error.
+- [ ] D5: add a per-instance `_uuid: str = uuid.uuid4().hex` on `OntologyModel`; key the Prolog facts cache by `(model._uuid, model.version)` and bound it with `collections.OrderedDict` LRU (max 8 entries).
+- [ ] D5 regression test: the cache is bounded to 8 entries, and a newly allocated model never receives another garbage-collected model's cached facts even if `id(model)` collides.
+- [ ] D7: escape `\n`, `\r`, `\t`, and control characters in `prolog_safe_string` (`\\n`, `\\r`, `\\t`, `\\xNN`) and unescape them in `unescape_prolog_atom` (being careful with backslash order so literal `\\n` is not corrupted into a newline); harden `prolog_facts_to_model` and `to_dialog` / `_parse_attributes` so values containing newlines or commas and bare entities (entities with no attributes) round-trip losslessly.
+- [ ] D7 regression tests: round-trip values containing newlines, tabs, quotes, backslashes, and commas, plus bare entities, through both Prolog facts (`model_to_prolog_facts` -> `prolog_facts_to_model`) and `.dialog` export (`to_dialog` -> `DialogModelSource`).
+- [ ] D9 (CLI REPL frame bypass): fix `cli.py:run_repl` (lines 193–200) so `DialogQuery` and `explain` statements execute through `traversal.query(line)` / `traversal.explain()` instead of bypassing `TraversalDialogueManager` via `traversal.session.execute_statement(stmt)`. Add a test in `test_cli.py` verifying that `focus` and `constrain` filter query results in `run_repl`.
+- [ ] D10 & Docs: fix the `README.md` Python API snippet (`README.md:143-146`) to match `run_query` (or `QueryResult`); fix the `README.md` `recommend` and inline `explain` examples (or implement their grammar in `dialog.py` per Track 0); fix the `repl` flag (`--file` / `-f`, not `--model` at `README.md:92`); fix `export` (`-o/--output`, not positional `out.html` at `README.md:116-117`); fix the license line (`README.md:214`) from Apache 2.0 to MIT; update test count from "63 unit tests" to the actual count.
+- [ ] Docs: fix the stale `call_with_time_limit/2` claim in `docs/architecture.md:21` and `docs/decisions.md:47` (timeouts are enforced by `subprocess.run(..., timeout=timeout_seconds)` in Python while inference limits use `call_with_inference_limit/3` in SWI-Prolog), and update `docs/decisions.md:49` so it accurately describes the pure-Python BFS degraded fallback rather than saying queries only return a diagnostic.
+- [ ] Docs: extend `tests/test_docs_verbatim.py` to extract and parse/execute **every** fenced `dialog` and `python` code block in `README.md`, `docs/language_reference.md`, and `docs/tutorial.md`.
+- [ ] CI: add an `ubuntu-latest` / Python 3.12 / no-swipl job in `.github/workflows/ci.yml`. Degraded mode must be verified automatically in CI on every push.
+- [ ] CI: measure the coverage baseline first (the README's "93%" is unverified — no coverage config or step exists); record the real number; only then add a `coverage run` + `coverage report --fail-under=90` step.
+- [ ] D8 explicitly not a defect: record in tests (`test_traversal.py`) a two-constraint `recommend` test proving that the `traversal.py:145` post-filter enforces all active frame constraints; do not remove the post-filter.
 
 ## Track 2 — Phase 1: Testing harness (3–5 days, depends on Track 1)
 
@@ -68,34 +84,37 @@ Exit gate: `python -m ontology_spider.harness run` green; parity report generate
 - [ ] Harness package `src/ontology_spider/harness/` + corpus dir (per the Track 0 harness-home decision).
 - [ ] Scenario format (`*.scenario.json`, or `.dialog` with `# expect:` annotations): model source, ordered turns, expected answers, expected rules and fact IDs, expected violations. Golden files are produced from reviewed runs.
 - [ ] Runner: `harness run [--backend prolog|python|both] [--transport inproc|mcp]`; writes a JSON + Markdown report (pass/fail, diffs, timings).
-- [ ] Differential / parity mode: `harness parity` runs every query on both backends and diffs answers as sets, plus paths. This is the check that would have caught D3.
-- [ ] Generators: `harness gen chain|tree|lattice|random_dag|cyclic --size N --seed S`; deterministic synthetic ontologies for scale and edge cases, with seeded random.
-- [ ] Property checks (stdlib, seeded): round-trip json → model → json is identity; dialog export re-parses to an equal model; ancestors are a superset of direct parents; adding a cycle edge always triggers `cycle_violation`.
+- [ ] Differential / parity mode: `harness parity` runs every query on both backends and diffs answers as sets, plus canonical proof paths and fact IDs. This is the check that catches D3 and diamond-DAG path duplication.
+- [ ] Generators: `harness gen chain|tree|lattice|random_dag|cyclic --size N --seed S`; deterministic synthetic ontologies for scale and edge cases, with seeded `random.Random(seed)`.
+- [ ] Property checks (stdlib, seeded): round-trip `json → model → json` is identity; `dialog` export re-parses to an equal model; ancestors are a superset of direct parents; adding a cycle edge always triggers `cycle_violation`.
 - [ ] Bench: `harness bench --budget bench_budgets.json`; p50/p95 latency per operation × size. Output is a JSON baseline committed to `harness/baselines/`, and CI fails on a regression beyond the budget. Budgets calibrated on the CI machine first (assessment timings are laptop-specific).
-- [ ] Extend the existing tutorial golden-answer corpus (`tests/test_corpus_tutorial.py` + `examples/expected_tutorial_answers.json`) to a multi-scenario corpus. It already exists as a single scenario — do not rebuild from zero.
+- [ ] Extend the existing tutorial golden-answer corpus (`tests/test_corpus_tutorial.py` + `examples/expected_tutorial_answers.json`) to a multi-scenario corpus covering `tutorial.dialog`, `drones.dialog`, diamond hierarchies, multi-attribute recommendations, and constraint violations. It already exists as a single scenario — do not rebuild from zero.
 - [ ] MCP contract suite stubbed (enabled in Track 4): same scenarios over stdio, plus protocol checks — `initialize`, `tools/list` schema validity, error codes, cancellation.
 
 ## Track 3 — Phase 2: Engine core (3–4 days, depends on Track 1; can run in parallel with Track 2)
 
 Exit gate: Reasoner protocol and Engine/Session exist, CLI and API are ported, D3 is fixed with parity at 100% on the corpus.
 
-- [ ] `reasoning/base.py`: a Reasoner protocol with `query(model, QuerySpec) -> ReasonerResult`, plus capabilities.
-- [ ] Move the degraded BFS into `reasoning/python_backend.py` as a first-class `PythonReasoner`. Selection order: explicit choice, then swipl if present, then Python.
-- [ ] `docs/semantics.md`: the canonical meaning of each query kind, including dedup, full transitive subclass closure, and ordering (per the Track 0 D3 decision).
-- [ ] Fix `rules.pl` to match `semantics.md`; D3 fixed; parity at 100% on the corpus (`harness parity` green).
-- [ ] `engine.py`: `Engine`, `SessionManager`, and `Session` (session_id, model, history, frames, last_result, an optional elicitation sub-state). Results use a single JSON-serializable `QueryResult` schema, so CLI, API, and MCP all emit the same shape.
-- [ ] Split `ElicitationManager.step()` (366 lines) into per-state handlers, with the harness catching regressions.
-- [ ] Automated stdlib-membership import-scan test (the assessment's "enforced" claim was overstated — the existing scan only checks for `brain_harness` tokens).
+- [ ] `reasoning/base.py`: a `Reasoner` protocol with `query(model, QuerySpec) -> ReasonerResult`, plus backend capabilities metadata.
+- [ ] Move the degraded BFS (and `lookup` / `filter` / `recommend` evaluation) into `reasoning/python_backend.py` as a first-class `PythonReasoner`. Selection order: explicit backend choice, then `swipl` (`PrologReasoner`) if present, then `PythonReasoner`.
+- [ ] `docs/semantics.md`: the canonical meaning of each query kind (`lookup`, `ancestors`, `transitive`, `recommend`, `filter`, `pattern`, `explain`), including answer deduplication, full N-hop transitive `subclass_of` closure, canonical shortest/first proof path on diamond DAGs, and deterministic ordering (per the Track 0 D3 decision).
+- [ ] Fix `rules.pl` to match `semantics.md`:
+  - Unify `recommend` / `recommend_match` over zero-or-more `subclass_of` hops (`subclass_closure/3`), supporting 0, 1, or N attribute filters.
+  - Deduplicate candidate answers and diamond-DAG reachability targets so Prolog does not emit duplicate candidates when attributes appear on both `entity` and `assertion` or when multiple paths exist in a DAG.
+  - Verify 100% parity on the corpus (`harness parity` green).
+- [ ] `engine.py`: `Engine`, `SessionManager`, and `Session` (`session_id`, `model`, `history`, `frames`, `last_result`, and optional `elicitation` sub-state). Results use a single JSON-serializable `QueryResult` schema (supporting both attribute access and `dict`-style `__getitem__` / `.to_dict()` for backward compatibility with existing `api.run_query` callers), so CLI, API, and MCP all emit the same shape.
+- [ ] Split `ElicitationManager.step()` (`elicitation.py:107-472`, 366 lines) and `amend_turn()` (`elicitation.py:485-645`) into per-state handler methods with shared phase-parsing helpers, with the harness and `test_elicitation.py` catching regressions.
+- [ ] Automated stdlib-membership import-scan test in `tests/test_seam_isolation.py`: walk AST imports across all files in `src/ontology_spider/` and assert every root module belongs to `sys.stdlib_module_names | {"ontology_spider", "__future__"}`.
 
 ## Track 4 — Phase 3: MCP server (3–4 days, depends on Tracks 2 and 3)
 
 Exit gate: `dialog mcp` starts a server; the harness drives the full scenario corpus over MCP; Brain Harness connects.
 
-- [ ] Transport: stdio, newline-delimited JSON-RPC 2.0. Implements `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, and `notifications/cancelled`. Hand-rolled in stdlib (~300–400 LOC) per the Track 0 decision. Streamable HTTP can come later behind the same dispatcher, only if Track 0 says so.
-- [ ] Entry points: `dialog mcp [--model PATH] [--backend …] [--read-only] [--root DIR]` and `python -m ontology_spider.mcp`.
-- [ ] Tools, each returning the Phase 2 `QueryResult` / JSON schema: `session_open` / `session_close` / `session_list`; `model_load`; `assert_triple` / `declare_entity` / `retract` (provenance-tagged with `source=mcp:<client>`; disabled under `--read-only`); `run_dialog`; `query`; `explain`; `validate`; `export` (json / dialog / dot / html); `focus` / `constrain` / `where_am_i`; `engine_info`.
+- [ ] Transport: stdio, newline-delimited JSON-RPC 2.0. Implements `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, and `notifications/cancelled`. Hand-rolled in stdlib (~300–400 LOC) per the Track 0 decision. Streamable HTTP can come later behind the same dispatcher, only if Track 0 says so.
+- [ ] Entry points: `dialog mcp [--model PATH] [--backend prolog|python|auto] [--read-only] [--root DIR]` and `python -m ontology_spider.mcp`.
+- [ ] Tools, each returning the Phase 2 `QueryResult` / JSON schema: `session_open` / `session_close` / `session_list`; `model_load`; `assert_triple` / `declare_entity` / `retract` (provenance-tagged with `source=mcp:<client>`; disabled under `--read-only`); `run_dialog`; `query`; `explain`; `validate`; `export` (`json` / `dialog` / `dot` / `html`); `focus` / `constrain` / `where_am_i`; `engine_info`.
 - [ ] Resources: `ontology://session/{id}/model.json`, `ontology://examples/{name}`, `ontology://docs/language-reference`.
-- [ ] Trust boundary: file access confined to `--root`; writes off under `--read-only`; per-call timeout and inference cap; max sessions and max assertions per session. Record all of this in `architecture.md`.
+- [ ] Trust boundary: file access (`model_load`, `import`, file `export`) confined to `--root` via `Path.resolve().is_relative_to(root)`; mutation tools disabled under `--read-only`; per-call timeout and inference cap; max active sessions (e.g. 32) and max assertions per session (e.g. 50,000). Record all of this in `docs/architecture.md`.
 - [ ] MCP contract suite green over stdio (from Track 2).
 - [ ] Brain-Harness follow-up (not in this repo): add an MCP connection config next to the existing plugin so the harness can use the engine over MCP as well as through the in-process adapter. Record as a Brain-Harness-side item.
 
@@ -103,11 +122,14 @@ Exit gate: `dialog mcp` starts a server; the harness drives the full scenario co
 
 Exit gate: budgets pass in CI; no exponential case in the generator suite.
 
-- [ ] Persistent `PrologWorker`: a long-lived swipl process that loads rules once, reloads facts only when the model version changes (incrementally via `assertz`/`retract` where possible), and takes goals over stdin/stdout JSON lines. Small pool with a per-instance lock instead of the class lock.
-- [ ] Tabling (`:- table transitive_reach/3`) for reachability. Reconstruct proof paths from BFS parent pointers rather than enumerating all paths.
-- [ ] Validator: Tarjan SCC for cycles (report one witness cycle per SCC), memoized superclass closure, disjointness computed per class and not per (constraint × entity).
-- [ ] Model: zero-copy read views (`MappingProxyType`), an `iter_assertions()` API, and a predicate-subject adjacency index. Removes O(N) copies in hot loops.
-- [ ] Harness-driven budgets pass in CI, calibrated on the CI machine. Proposed: Prolog query p50 < 15 ms; Python query on 10k assertions p50 < 5 ms; validate 10k-assertion lattice < 1 s; full test suite < 4 s.
+- [ ] Persistent `PrologWorker`: a long-lived `swipl` process that loads `rules.pl` once, syncs facts only when `(model._uuid, model.version)` changes (retracting/asserting dynamic facts or consulting updated fact streams), and takes goals over stdin/stdout JSON lines. Managed with a per-instance lock and clean teardown (`atexit` / context manager) instead of a class-wide subprocess spawn per query.
+- [ ] Tabling / BFS reachability in `rules.pl`: use tabled reachability (`:- table ...`) or BFS frontier expansion in Prolog and reconstruct canonical shortest proof paths from parent pointers rather than enumerating all simple paths ($O(2^N)$ on lattices).
+- [ ] Validator (`validation.py`):
+  - Replace exponential all-cycles DFS (`validation.py:212-239`) with Tarjan's SCC algorithm ($O(V + E)$) plus single witness-cycle reconstruction per non-trivial SCC (or self-loop).
+  - Memoize `get_all_superclasses` and `get_types` across the `validate()` call (currently recomputed from scratch per entity and per assertion).
+  - Compute disjointness per class-pair using precomputed class-membership sets rather than nested loops with repeated BFS (`validation.py:166-193`).
+- [ ] Model (`model.py`): zero-copy read views (`MappingProxyType` on `entities` and `assertions`, plus `iter_entities()` / `iter_assertions()`) and a `(predicate, subject)` / `(predicate, object)` adjacency index so `model.query(subject=s, predicate=p)` avoids copying and intersecting large `set[str]` buckets (`model.py:246-252`) in hot loops.
+- [ ] Harness-driven budgets pass in CI, calibrated on the CI machine. Proposed: Prolog query p50 < 15 ms (with persistent worker); Python query on 10k assertions p50 < 5 ms; validate 10k-assertion lattice < 1 s; full test suite < 4 s.
 
 ## Track 6 — Phase 5: Direction (ongoing, depends on Tracks 4 and 5)
 
