@@ -125,7 +125,8 @@ class TestHarnessProperties(unittest.TestCase):
         self.assertEqual(harness_main(["run", "--transport", "inproc"]), 0)
         self.assertEqual(harness_main(["run", "--transport", "mcp"]), 0)
         self.assertEqual(harness_main(["run", "--backend", "python"]), 0)
-        self.assertEqual(harness_main(["run", "--backend", "prolog"]), 0)
+        if HarnessRunner().prolog.is_available:
+            self.assertEqual(harness_main(["run", "--backend", "prolog"]), 0)
         self.assertEqual(harness_main(["run", "--dir", "missing_dir"]), 1)
         self.assertEqual(harness_main(["corpus"]), 0)
 
@@ -160,8 +161,9 @@ class TestHarnessProperties(unittest.TestCase):
         runner = HarnessRunner()
         res_py = runner.run_scenario({"scenario": "drones", "model": "examples/drones.dialog", "queries": ["query what is sky_scout?"]}, backend="python", transport="inproc")
         self.assertTrue(res_py.passed)
-        res_pl = runner.run_scenario({"scenario": "drones", "model": "examples/drones.dialog", "queries": ["query what is sky_scout?"]}, backend="prolog", transport="inproc")
-        self.assertTrue(res_pl.passed)
+        if runner.prolog.is_available:
+            res_pl = runner.run_scenario({"scenario": "drones", "model": "examples/drones.dialog", "queries": ["query what is sky_scout?"]}, backend="prolog", transport="inproc")
+            self.assertTrue(res_pl.passed)
 
     def test_dialog_roundtrip_lossless_types_and_provenance(self):
         from ontology_spider.model import OntologyModel, Relation, Provenance, Entity
