@@ -1,0 +1,151 @@
+Ontology-Spider: assessment and development cycle
+
+Snapshot: v0.2.0 @ c4f615f, 2026-11-06. Everything below was checked against the code and against probe runs (scratch/probe.py and scratch/parity.py). Nothing here is guessed.
+
+1. Executive summary
+
+Ontology-Spider is a small, clean, early-stage engine: about 3.3k LOC, no third-party dependencies, 64 green tests, and a sensible seam (ModelSource). The architecture is sound. The weak spots are typical for a project this young:
+
+Correctness gaps at the edges. A crash on entity re-declaration, unbounded recursion on cyclic imports, and the two reasoner backends giving different answers for the same query.
+Performance cliffs. Every Prolog query spawns a fresh swipl process (~210 ms per query against ~0.05 ms in pure Python). Graph walks in the validator and in rules.pl enumerate every path, so their cost grows exponentially on diamond-shaped hierarchies.
+Doc drift. The README advertises syntax the parser rejects.
+No machine-facing surface. There's a Python API and a CLI, but no long-lived, session-aware service that an external harness or agent can drive.
+
+The dev cycle in section 4 fixes these in an order where each phase measures the next one. The testing harness comes before the performance work. The Engine/Session facade comes before the MCP server, so MCP is a thin transport and not a second engine.
+
+2. Current-state analysis
+2.1 Architecture as built
+
+Strengths
+
+The seam discipline is good: zero foreign imports, and Brain Harness depends on the engine, never the reverse.
+Explanations come with provenance (assertion IDs, turn IDs, rules fired) all the way through. This sets the engine apart and should be protected by tests.
+The stdlib-only guardrail is real and enforced.
+Prolog input is escaped through prolog_safe_string. Users never send raw goals to Prolog.
+
+Structural weaknesses
+
+The reasoning backend isn't an interface. The Python fallback lives as if not self.reasoner.is_available branches inside dialog_runner.py, copied into 4 query kinds. A harness can't target "backend X" cleanly, and the two backends have drifted apart (see 2.2).
+api.py is stateless. run_query builds a new DialogSession on every call, so multi-turn state, explain, and frames can't be reached from the API. An MCP server needs sessions.
+elicitation.py has one 365-line step() method (L107–472). That's the biggest complexity hotspot and the hardest code to test.
+2.2 Verified defects
+#	Severity	Defect	Evidence
+D1	High	Re-declaring an entity with name= crashes with FrozenInstanceError. Code assigns to a frozen dataclass.	seam.py L113-117, dialog_runner.py L100-104. Probe: [FAIL] FrozenInstanceError
+D2	High	In-place existing.attributes.update(...) mutates a "frozen" entity without bumping model.version. The Prolog facts cache then serves stale attributes.	Same lines + reasoner.py L169-174
+D3	High	The backends disagree. recommend X with no filter returns siblings sharing a category in Prolog but instances of X in Python. recommend_match follows only one subclass level, while Python follows the full closure. Prolog also returns duplicates.	rules.pl L55-68. Parity probe: prolog ['surveillance_drone'] vs python ['quad_x1','sky_scout']; quad_x1 returned twice
+D4	Med	Cyclic imports (a imports b, b imports a) raise RecursionError.	seam.py L85-95. Probe confirmed
+D5	Med	Facts cache is keyed by id(model): it never evicts, and an id can be reused after GC, so a new model could get stale facts.	reasoner.py L120, L169
+D6	Med	.dialog export isn't lossless, despite the docstring. Values containing , ] or spaces break re-parsing, timestamps are dropped, attribute-less orphan entities are lost, and "007" becomes 7. DOT export doesn't escape ".	export.py L17-52, dialog.py L89-109
+D7	Low	prolog_safe_string doesn't escape newlines or control characters, so a value containing one breaks the generated facts file.	translator.py L17-22
+D8	Low	Traversal applies only the first frame constraint to recommend.	traversal.py L120-121
+2.3 Documentation drift
+Claim	Reality
+README: query recommend delivery_drone [payload_kg=5, range_km=20] and ... explain	ParseError. Only recommend X where k=v, with a single filter, parses.
+README: repl --model …	CLI flag is -f/--file
+README: export in.dialog out.html --format html	Output is -o, not positional
+README: "Apache 2.0", "63 unit tests"	LICENSE and pyproject say MIT; there are 64 tests
+architecture.md: in-Prolog call_with_time_limit/2	Removed in 7dbb486. Only the subprocess timeout remains.
+
+test_docs_verbatim.py exists but doesn't cover README code blocks. It should.
+
+2.4 Performance baseline (measured on this machine, swipl 10.x, Py 3.13)
+Operation	Measured	Cause
+Prolog query (drones, 20 assertions)	~205–240 ms	New swipl process, re-consulting rules and facts, temp dir per query
+Same query, Python backend	0.02–0.07 ms	—
+Full test suite	8.7 s	Mostly swipl spawns
+validate on diamond lattice, 40 / 56 / 64 assertions	0.006 s / 0.112 s / 0.563 s	Cycle DFS enumerates every path (no global visited set or SCC). About ×4 every 2 levels, so ~80 assertions would take minutes.
+Prolog transitive_path / ancestor_of	Same exponential shape (shown by code inspection)	Enumerates all simple paths; the 1M inference cap is the only brake
+Also	PrologReasoner._lock is class-level, so all reasoning in the process is serialized. model.assertions / .entities copy the whole dict on every access, including inside per-fact loops.	reasoner.py L112, model.py L156-162
+2.5 Testing and CI gaps
+CI never runs degraded mode. Both matrix legs install swipl, so the supported no-swipl path is only verified by hand.
+No backend-parity tests. D3 shipped because nothing compares the two backends.
+No performance budgets, no synthetic-ontology generators, no coverage gate, no lint.
+Tests are unit-level only. No scenario or golden-transcript corpus.
+3. Target architecture (end of cycle)
+
+Key moves:
+
+Reasoner protocol. PythonReasoner and PrologReasoner implement the same contract, and a single semantics spec says what each query kind returns.
+Engine / Session facade. It owns sessions, versions, and result schemas. CLI, API, MCP, and the harness are all thin adapters over it.
+The harness runs scenarios two ways: in-process, and over MCP. The same scenario file therefore tests the engine and the MCP contract.
+4. Charted development cycle
+Phase	Est. effort	Depends on	Exit gate (evidence-based, matching your existing plan convention)
+0 Stabilize	1–2 days	—	D1, D2, D4, D5, D7 fixed with regression tests. README/docs match behavior. CI has a degraded-mode job.
+1 Testing harness	3–5 days	0	python -m ontology_spider.harness run green. Parity report is generated. Bench baseline is recorded as JSON.
+2 Engine core	3–4 days	0 (can run in parallel with 1)	Reasoner protocol and Engine/Session exist, CLI and API are ported, D3 is fixed with parity at 100% on the corpus.
+3 MCP server	3–4 days	1, 2	dialog mcp starts a server. The harness drives the full scenario corpus over MCP, and Brain Harness connects.
+4 Performance	4–6 days	1, 2	Budgets in 4.4 pass in CI. No exponential case in the generator suite.
+5 Direction	ongoing	3, 4	Backlog re-prioritized against harness data.
+Phase 0: Stabilize
+D1/D2: Stop mutating entities. Add OntologyModel.upsert_entity(id, name=None, **attrs), which builds a new frozen Entity and bumps version. Have Entity use a MappingProxyType (or copy on read) so in-place mutation fails loudly.
+D4: Track visited import paths (resolved, absolute) and raise ImportCycleError naming the chain. Pull the import logic shared by seam.py and dialog_runner.py into one place.
+D5: Key the cache by a model-owned uuid plus version, and bound it with an LRU of about 8 entries.
+D7: Escape \n \r \t and control characters in prolog_safe_string.
+Docs: Choose one: implement multi-attribute recommend X [k=v, ...] and inline explain (recommended, because the README already promises it and agents will want it), or fix the README. Fix the CLI flag names and the license line. Extend test_docs_verbatim so every README dialog code block gets parsed.
+CI: Add an ubuntu / 3.12 / no-swipl job and a coverage report --fail-under=90 step.
+Phase 1: Testing harness (src/ontology_spider/harness/ + harness/ corpus dir)
+
+Stdlib only. The harness is a product feature (agents and CI both use it), not just test scaffolding.
+
+Component	What it does
+Scenario format (*.scenario.json, or .dialog with # expect: annotations)	Model source, ordered turns, expected answers, expected rules and fact IDs, expected violations. Golden files are produced from reviewed runs.
+Runner harness run [--backend prolog|python|both] [--transport inproc|mcp]	Runs scenarios and writes a JSON + Markdown report (pass/fail, diffs, timings).
+Differential / parity mode harness parity	Runs every query on both backends and diffs answers as sets, plus paths. This is the check that would have caught D3.
+Generators harness gen chain|tree|lattice|random_dag|cyclic --size N --seed S	Deterministic synthetic ontologies for scale and edge cases, with seeded random.
+Property checks (stdlib, seeded)	Round-trip json → model → json is identity. dialog export re-parses to an equal model. Ancestors are a superset of direct parents. Adding a cycle edge always triggers cycle_violation.
+Bench harness bench --budget bench_budgets.json	p50/p95 latency per operation × size. Output is a JSON baseline committed to harness/baselines/, and CI fails on a regression beyond the budget.
+MCP contract suite (enabled in Phase 3)	Same scenarios over stdio, plus protocol checks: initialize, tools/list schema validity, error codes, cancellation.
+Phase 2: Engine core
+reasoning/base.py: a Reasoner protocol with query(model, QuerySpec) -> ReasonerResult, plus capabilities.
+Move the degraded BFS into reasoning/python_backend.py as a first-class PythonReasoner. Selection order: explicit choice, then swipl if present, then Python.
+Write docs/semantics.md: the canonical meaning of each query kind, including dedup, full transitive subclass closure, and ordering. Then fix rules.pl to match. (This needs your call; see Decisions.)
+engine.py: Engine, SessionManager, and Session (session_id, model, history, frames, last_result, an optional elicitation sub-state). Results use a single JSON-serializable QueryResult schema, so CLI, API, and MCP all emit the same shape.
+Split ElicitationManager.step() into per-state handlers. Do this now, while the harness is coming online to catch regressions.
+Phase 3: MCP server (src/ontology_spider/mcp/)
+Transport: stdio, newline-delimited JSON-RPC 2.0. Implements initialize, ping, tools/list, tools/call, resources/list, resources/read, and notifications/cancelled. Hand-rolling this in stdlib takes roughly 300–400 LOC. Streamable HTTP can come later behind the same dispatcher.
+Entry points: dialog mcp [--model PATH] [--backend …] [--read-only] [--root DIR] and python -m ontology_spider.mcp.
+Tools (each returns the Phase 2 QueryResult / JSON schema):
+Tool	Purpose
+session_open / session_close / session_list	Lifecycle. Optionally preload a model path or inline text.
+model_load	Load a .dialog or .json file, or inline text, into a session (paths confined to --root).
+assert_triple / declare_entity / retract	Writes, provenance-tagged with source=mcp:<client>. Disabled under --read-only.
+run_dialog	Run a multi-line .dialog script and return per-turn results.
+query	Any query form. Returns answers, explanations, and provenance.
+explain	Proof trace for the last query in the session.
+validate	Returns structured violations.
+export	json / dialog / dot / html.
+focus / constrain / where_am_i	Traversal frame stack.
+engine_info	Version, active backend, swipl availability, capabilities.
+Resources: ontology://session/{id}/model.json, ontology://examples/{name}, ontology://docs/language-reference.
+Trust boundary: file access confined to --root, writes off under --read-only, per-call timeout and inference cap, and a max sessions and max assertions limit per session. Record all of this in architecture.md.
+Brain Harness: Add an MCP connection config next to the existing plugin so the harness can use the engine over MCP as well as through the in-process adapter.
+Phase 4: Performance
+Lever	Expected gain
+Persistent PrologWorker: a long-lived swipl process that loads rules once, reloads facts only when the model version changes (incrementally via assertz/retract where possible), and takes goals over stdin/stdout JSON lines. Small pool with a per-instance lock instead of the class lock.	~210 ms → low single-digit ms per query
+Tabling (:- table transitive_reach/3) for reachability. Reconstruct proof paths from BFS parent pointers rather than enumerating all paths.	Exponential → polynomial on lattices
+Validator: Tarjan SCC for cycles (report one witness cycle per SCC), memoized superclass closure, disjointness computed per class and not per (constraint × entity).	0.56 s at 64 assertions → milliseconds at 10k
+Model: zero-copy read views (MappingProxyType), an iter_assertions() API, and a predicate-subject adjacency index	Removes O(N) copies in hot loops
+Harness-driven budgets (proposed): Prolog query p50 < 15 ms; Python query on 10k assertions p50 < 5 ms; validate 10k-assertion lattice < 1 s; full test suite < 4 s	Enforced in CI by harness bench
+Phase 5: Direction (candidate backlog, ordered by the harness data you'll have by then)
+Multi-turn retraction and amendment over MCP (retract_by_turn is already in the model).
+Query language growth: multi-constraint recommend, path from X to Y, negation (not instance_of), and counting.
+Persistent sessions (save and restore to .dialog or JSON), so an agent can resume work.
+Incremental validation (validate only the delta since the last version).
+Re-test the Track 10 deferrals (OWL2, Datalog) against measured harness data, using their existing un-defer conditions.
+5. Decisions needed from you
+
+IMPORTANT
+
+MCP implementation vs. the zero-dependency guardrail. The official mcp Python SDK is a third-party dependency (it pulls in pydantic, anyio, and more). Options:
+
+(Recommended) Hand-roll the stdio MCP server in stdlib. The guardrail stays intact, and the protocol surface needed is small.
+Put the official SDK in an optional extra, pip install ontology-spider[mcp], with the core staying dependency-free.
+Both: stdlib stdio now, optional SDK-backed HTTP transport later.
+
+WARNING
+
+Canonical recommend semantics (D3). Prolog's no-filter recommend X means "things sharing a category with X". Python's means "instances of class X, through the subclass closure". The README examples imply the second. Confirm which one is canonical. The other backend gets changed to match.
+
+README promises: implement multi-attribute recommend [k=v, …] and inline explain (recommended), or trim the README?
+MCP write access: should the server allow writes by default, or default to --read-only and require opting in?
+Harness home: ship it inside the package (ontology_spider.harness, usable by agents and Brain Harness; recommended) or keep it under tests/ only?
