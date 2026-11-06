@@ -73,6 +73,50 @@ class DialogDoc:
 
 
 
+def _unescape_string(raw: str) -> str:
+    r"""Unescape backslash escapes (\n, \r, \t, \xNN, \", \', \\) in a single pass."""
+    i = 0
+    n = len(raw)
+    out: list[str] = []
+    while i < n:
+        if raw[i] == "\\" and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+            elif nxt == "r":
+                out.append("\r")
+                i += 2
+            elif nxt == "t":
+                out.append("\t")
+                i += 2
+            elif nxt == '"':
+                out.append('"')
+                i += 2
+            elif nxt == "'":
+                out.append("'")
+                i += 2
+            elif nxt == "\\":
+                out.append("\\")
+                i += 2
+            elif nxt == "x" and i + 3 < n:
+                hex_part = raw[i + 2 : i + 4]
+                try:
+                    code = int(hex_part, 16)
+                    out.append(chr(code))
+                    i += 4
+                except ValueError:
+                    out.append(raw[i : i + 2])
+                    i += 2
+            else:
+                out.append(nxt)
+                i += 2
+        else:
+            out.append(raw[i])
+            i += 1
+    return "".join(out)
+
+
 def _parse_attributes(attr_str: str, line_num: int) -> dict[str, Any]:
     """Parse key=value pairs inside brackets, respecting quoted strings with commas."""
     attr_str = attr_str.strip()
@@ -131,17 +175,19 @@ def _parse_attributes(attr_str: str, line_num: int) -> dict[str, Any]:
         k = k.strip()
         v = v.strip()
         if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-            v = v[1:-1].replace('\\"', '"').replace("\\'", "'")
-        else:
-            # Try numeric conversion
-            try:
-                if "." in v:
-                    attributes[k] = float(v)
-                else:
-                    attributes[k] = int(v)
-                continue
-            except ValueError:
-                pass
+            # Quoted values remain str without numeric coercion
+            attributes[k] = _unescape_string(v[1:-1])
+            continue
+
+        # Try numeric conversion for unquoted tokens
+        try:
+            if "." in v:
+                attributes[k] = float(v)
+            else:
+                attributes[k] = int(v)
+            continue
+        except ValueError:
+            pass
         attributes[k] = v
     return attributes
 

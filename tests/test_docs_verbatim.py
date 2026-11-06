@@ -53,6 +53,22 @@ class TestDocsVerbatim(unittest.TestCase):
         html_str = export_model(model, "html")
         self.assertIn("<!DOCTYPE html>", html_str)
 
+    def test_readme_structure_and_cli_subcommands(self):
+        text = (self.root / "README.md").read_text(encoding="utf-8")
+        from ontology_spider.cli import build_parser
+        parser = build_parser()
+        subparser_actions = [
+            action for action in parser._actions 
+            if action.dest == "command"
+        ]
+        self.assertTrue(len(subparser_actions) > 0)
+        subcommands = list(subparser_actions[0].choices.keys())
+        expected_cli_line = f"{len(subcommands)} CLI subcommands ({', '.join(subcommands)})"
+        self.assertIn(expected_cli_line, text)
+        self.assertIn(f"Ontology-Spider provides {len(subcommands)} CLI subcommands:", text)
+        self.assertIn("96 unit tests", text)
+        self.assertIn("coverage report --fail-under=90", text)
+
     def test_all_fenced_dialog_blocks_parse(self):
         doc_files = [
             self.root / "README.md",

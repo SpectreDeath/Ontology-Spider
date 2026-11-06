@@ -1,0 +1,10 @@
+{
+  "scenario": "multi_recommend",
+  "model": "examples/multi_recommend.dialog",
+  "queries": [
+    "query recommend autonomous_agent [payload_kg=10, status=active]",
+    "query recommend heavy_drone [payload_kg=10]",
+    "query recommend aerial_agent [payload_kg=5, max_range_km=50]",
+    "query recommend agent [status=active]"
+  ]
+}

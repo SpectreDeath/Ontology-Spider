@@ -142,6 +142,7 @@ class PrologReasoner:
         req_val: Optional[Any] = None,
         timeout_seconds: int = 10,
         max_inferences: int = 1000000,
+        **kwargs: Any,
     ) -> ReasonerResult:
         """Run a query goal against model facts using SWI-Prolog."""
         if not self.is_available:
@@ -158,6 +159,7 @@ class PrologReasoner:
             o = spec.object
             rk = spec.filter_key
             rv = spec.filter_val
+            filter_attrs = dict(spec.filter_attributes)
             to = spec.timeout_seconds
             mi = spec.max_inferences
         else:
@@ -167,6 +169,7 @@ class PrologReasoner:
             o = object
             rk = req_key
             rv = req_val
+            filter_attrs = dict(kwargs.get("filter_attributes", {}))
             to = timeout_seconds
             mi = max_inferences
 
@@ -179,6 +182,7 @@ class PrologReasoner:
                 object=o,
                 req_key=rk,
                 req_val=rv,
+                filter_attributes=filter_attrs,
                 timeout_seconds=to,
                 max_inferences=mi,
             )
@@ -194,6 +198,7 @@ class PrologReasoner:
         req_val: Optional[Any],
         timeout_seconds: int,
         max_inferences: int,
+        filter_attributes: Optional[dict[str, Any]] = None,
     ) -> ReasonerResult:
         model_uuid = getattr(model, "uuid", str(id(model)))
         cache_key = (model_uuid, getattr(model, "version", 0))
@@ -229,11 +234,19 @@ class PrologReasoner:
         elif goal_type == "recommend":
             if not subject:
                 raise ValueError("Recommend query requires subject")
-            if req_key and req_val is not None:
-                rk = prolog_safe_string(req_key)
-                rv = prolog_safe_string(req_val)
+            all_attrs = dict(filter_attributes or {})
+            if req_key and req_val is not None and req_key not in all_attrs:
+                all_attrs[req_key] = req_val
+
+            if all_attrs:
+                attr_terms = []
+                for k, v in all_attrs.items():
+                    safe_k = prolog_safe_string(k)
+                    safe_v = prolog_safe_string(v)
+                    attr_terms.append(f"{safe_k}={safe_v}")
+                attr_list_str = "[" + ", ".join(attr_terms) + "]"
                 goal_str = (
-                    f"recommend_match({s}, {rk}, {rv}, Rec, Rules, FactIds), "
+                    f"recommend_multi({s}, {attr_list_str}, Rec, Rules, FactIds), "
                     f"Result = json([value=Rec, rules=Rules, facts=FactIds, path=[{s}, Rec]])"
                 )
             else:

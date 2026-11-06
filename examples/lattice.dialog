@@ -1,0 +1,99 @@
+dialog urn:test:gen:lattice:20
+
+# Entities and Schema
+entity top
+entity l_1_0
+entity l_1_1
+entity l_1_2
+entity l_1_3
+entity l_2_0
+entity l_2_1
+entity l_2_2
+entity l_2_3
+entity l_3_0
+entity l_3_1
+entity l_3_2
+entity l_3_3
+entity l_4_0
+entity l_4_1
+entity l_4_2
+entity l_4_3
+entity l_5_0
+entity l_5_1
+entity l_5_2
+entity l_5_3
+entity bottom
+
+# Assertions
+assert l_1_0 subclass_of top [_id=asrt_052703e75622, _source="gen:lattice:seed=42"]
+assert l_1_1 subclass_of top [_id=asrt_dd4874918358, _source="gen:lattice:seed=42"]
+assert l_1_2 subclass_of top [_id=asrt_0cd2983bbb5b, _source="gen:lattice:seed=42"]
+assert l_1_3 subclass_of top [_id=asrt_dbde85718cd6, _source="gen:lattice:seed=42"]
+assert l_2_0 subclass_of l_1_0 [_id=asrt_b8bdb4a5e7b4, _source="gen:lattice:seed=42"]
+assert l_2_0 subclass_of l_1_1 [_id=asrt_9c9fca9cd796, _source="gen:lattice:seed=42"]
+assert l_2_0 subclass_of l_1_2 [_id=asrt_7b92e22e949e, _source="gen:lattice:seed=42"]
+assert l_2_0 subclass_of l_1_3 [_id=asrt_cf6bbd3749e0, _source="gen:lattice:seed=42"]
+assert l_2_1 subclass_of l_1_0 [_id=asrt_97e579ed27ff, _source="gen:lattice:seed=42"]
+assert l_2_1 subclass_of l_1_1 [_id=asrt_54c382c27984, _source="gen:lattice:seed=42"]
+assert l_2_1 subclass_of l_1_2 [_id=asrt_28d2d94ae1bc, _source="gen:lattice:seed=42"]
+assert l_2_1 subclass_of l_1_3 [_id=asrt_e8abc5cdcea8, _source="gen:lattice:seed=42"]
+assert l_2_2 subclass_of l_1_0 [_id=asrt_a412db1a1460, _source="gen:lattice:seed=42"]
+assert l_2_2 subclass_of l_1_1 [_id=asrt_dc971456d229, _source="gen:lattice:seed=42"]
+assert l_2_2 subclass_of l_1_2 [_id=asrt_05adb05fde87, _source="gen:lattice:seed=42"]
+assert l_2_2 subclass_of l_1_3 [_id=asrt_595c3b55ea32, _source="gen:lattice:seed=42"]
+assert l_2_3 subclass_of l_1_0 [_id=asrt_db0d8c0e5228, _source="gen:lattice:seed=42"]
+assert l_2_3 subclass_of l_1_1 [_id=asrt_87407cc9f66f, _source="gen:lattice:seed=42"]
+assert l_2_3 subclass_of l_1_2 [_id=asrt_6c3071723ba4, _source="gen:lattice:seed=42"]
+assert l_2_3 subclass_of l_1_3 [_id=asrt_9f7994298ef8, _source="gen:lattice:seed=42"]
+assert l_3_0 subclass_of l_2_0 [_id=asrt_4134cfddfdff, _source="gen:lattice:seed=42"]
+assert l_3_0 subclass_of l_2_1 [_id=asrt_20132b4974e4, _source="gen:lattice:seed=42"]
+assert l_3_0 subclass_of l_2_2 [_id=asrt_07ac106b6ce9, _source="gen:lattice:seed=42"]
+assert l_3_0 subclass_of l_2_3 [_id=asrt_9abe86b3be00, _source="gen:lattice:seed=42"]
+assert l_3_1 subclass_of l_2_0 [_id=asrt_d7db52a6a599, _source="gen:lattice:seed=42"]
+assert l_3_1 subclass_of l_2_1 [_id=asrt_bce8d0a8ac8b, _source="gen:lattice:seed=42"]
+assert l_3_1 subclass_of l_2_2 [_id=asrt_a7638f86b18e, _source="gen:lattice:seed=42"]
+assert l_3_1 subclass_of l_2_3 [_id=asrt_d02436538b44, _source="gen:lattice:seed=42"]
+assert l_3_2 subclass_of l_2_0 [_id=asrt_0c4f1a49cf62, _source="gen:lattice:seed=42"]
+assert l_3_2 subclass_of l_2_1 [_id=asrt_3bb21506e7fe, _source="gen:lattice:seed=42"]
+assert l_3_2 subclass_of l_2_2 [_id=asrt_e1abc5816596, _source="gen:lattice:seed=42"]
+assert l_3_2 subclass_of l_2_3 [_id=asrt_6532cb335041, _source="gen:lattice:seed=42"]
+assert l_3_3 subclass_of l_2_0 [_id=asrt_24f24a2bd107, _source="gen:lattice:seed=42"]
+assert l_3_3 subclass_of l_2_1 [_id=asrt_52312761c7b4, _source="gen:lattice:seed=42"]
+assert l_3_3 subclass_of l_2_2 [_id=asrt_d9dceb0d2015, _source="gen:lattice:seed=42"]
+assert l_3_3 subclass_of l_2_3 [_id=asrt_82d0573f05f8, _source="gen:lattice:seed=42"]
+assert l_4_0 subclass_of l_3_0 [_id=asrt_be0972abd244, _source="gen:lattice:seed=42"]
+assert l_4_0 subclass_of l_3_1 [_id=asrt_4056b79c096b, _source="gen:lattice:seed=42"]
+assert l_4_0 subclass_of l_3_2 [_id=asrt_6e39c87b4abf, _source="gen:lattice:seed=42"]
+assert l_4_0 subclass_of l_3_3 [_id=asrt_fe2410eddab9, _source="gen:lattice:seed=42"]
+assert l_4_1 subclass_of l_3_0 [_id=asrt_e3f86301b238, _source="gen:lattice:seed=42"]
+assert l_4_1 subclass_of l_3_1 [_id=asrt_7b07f04991f8, _source="gen:lattice:seed=42"]
+assert l_4_1 subclass_of l_3_2 [_id=asrt_ee55ba866fc8, _source="gen:lattice:seed=42"]
+assert l_4_1 subclass_of l_3_3 [_id=asrt_19f4e4f54b81, _source="gen:lattice:seed=42"]
+assert l_4_2 subclass_of l_3_0 [_id=asrt_ef37227c3c69, _source="gen:lattice:seed=42"]
+assert l_4_2 subclass_of l_3_1 [_id=asrt_1c9054ccdbbf, _source="gen:lattice:seed=42"]
+assert l_4_2 subclass_of l_3_2 [_id=asrt_13fc51845f2f, _source="gen:lattice:seed=42"]
+assert l_4_2 subclass_of l_3_3 [_id=asrt_f1f7fd8940fb, _source="gen:lattice:seed=42"]
+assert l_4_3 subclass_of l_3_0 [_id=asrt_2cbe53916dd3, _source="gen:lattice:seed=42"]
+assert l_4_3 subclass_of l_3_1 [_id=asrt_3d8390b10db8, _source="gen:lattice:seed=42"]
+assert l_4_3 subclass_of l_3_2 [_id=asrt_cc4488e2497c, _source="gen:lattice:seed=42"]
+assert l_4_3 subclass_of l_3_3 [_id=asrt_6365a37c072b, _source="gen:lattice:seed=42"]
+assert l_5_0 subclass_of l_4_0 [_id=asrt_682c6d19fe69, _source="gen:lattice:seed=42"]
+assert l_5_0 subclass_of l_4_1 [_id=asrt_fc3da97dc3ef, _source="gen:lattice:seed=42"]
+assert l_5_0 subclass_of l_4_2 [_id=asrt_dc7f7d1cbf76, _source="gen:lattice:seed=42"]
+assert l_5_0 subclass_of l_4_3 [_id=asrt_6c307bc44029, _source="gen:lattice:seed=42"]
+assert l_5_1 subclass_of l_4_0 [_id=asrt_699e8b0392d4, _source="gen:lattice:seed=42"]
+assert l_5_1 subclass_of l_4_1 [_id=asrt_c9a14716a3de, _source="gen:lattice:seed=42"]
+assert l_5_1 subclass_of l_4_2 [_id=asrt_71ec82e558c2, _source="gen:lattice:seed=42"]
+assert l_5_1 subclass_of l_4_3 [_id=asrt_2b0cb9e22a87, _source="gen:lattice:seed=42"]
+assert l_5_2 subclass_of l_4_0 [_id=asrt_48ff0d9f4f0e, _source="gen:lattice:seed=42"]
+assert l_5_2 subclass_of l_4_1 [_id=asrt_bb407dfda586, _source="gen:lattice:seed=42"]
+assert l_5_2 subclass_of l_4_2 [_id=asrt_a3d1705ed9cf, _source="gen:lattice:seed=42"]
+assert l_5_2 subclass_of l_4_3 [_id=asrt_aeecaa3387d9, _source="gen:lattice:seed=42"]
+assert l_5_3 subclass_of l_4_0 [_id=asrt_5cd7127c609a, _source="gen:lattice:seed=42"]
+assert l_5_3 subclass_of l_4_1 [_id=asrt_8cdd71f63a0e, _source="gen:lattice:seed=42"]
+assert l_5_3 subclass_of l_4_2 [_id=asrt_a00fe75bde3d, _source="gen:lattice:seed=42"]
+assert l_5_3 subclass_of l_4_3 [_id=asrt_284fdc019a63, _source="gen:lattice:seed=42"]
+assert bottom subclass_of l_5_0 [_id=asrt_86881a531cb3, _source="gen:lattice:seed=42"]
+assert bottom subclass_of l_5_1 [_id=asrt_43ee8b22d105, _source="gen:lattice:seed=42"]
+assert bottom subclass_of l_5_2 [_id=asrt_601c92a95155, _source="gen:lattice:seed=42"]
+assert bottom subclass_of l_5_3 [_id=asrt_d2a5c8aae398, _source="gen:lattice:seed=42"]

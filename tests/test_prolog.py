@@ -83,6 +83,17 @@ class TestPrologReasoner(unittest.TestCase):
         res = self.reasoner.query(model, goal_type="pattern", subject="ent_complex")
         self.assertEqual(len(res.answers), 1)
 
+    def test_control_character_xnn_roundtrip(self):
+        from ontology_spider.prolog.translator import prolog_safe_string, unescape_prolog_atom
+        test_str = "prefix_\x00_\x01_\x1f_\x7f_suffix"
+        safe = prolog_safe_string(test_str)
+        self.assertIn(r"\x00", safe)
+        self.assertIn(r"\x01", safe)
+        self.assertIn(r"\x1f", safe)
+        self.assertIn(r"\x7f", safe)
+        restored = unescape_prolog_atom(safe)
+        self.assertEqual(restored, test_str)
+
 
     def test_ancestor_reasoning_and_provenance(self):
         model = OntologyModel(uri="urn:test:ancestry")

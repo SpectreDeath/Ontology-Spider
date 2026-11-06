@@ -48,4 +48,35 @@ def run_benchmarks() -> dict[str, Any]:
     latencies.sort()
     results["lattice_50_validate_p50_ms"] = round(latencies[len(latencies) // 2], 2)
 
+    # 4. 20-node diamond lattice ancestors query (Prolog persistent worker)
+    lattice_20 = generate_lattice(20)
+    session_lattice = Session(model=lattice_20)
+    latencies = []
+    for _ in range(5):
+        t0 = time.perf_counter()
+        session_lattice.execute("query ancestors of bottom")
+        latencies.append((time.perf_counter() - t0) * 1000)
+    latencies.sort()
+    results["lattice_20_ancestors_p50_ms"] = round(latencies[len(latencies) // 2], 2)
+
+    # 5. Python query on 10k assertions (p50 < 5 ms)
+    from ontology_spider.reasoning.python_backend import PythonReasoner
+    from ontology_spider.reasoning.base import QuerySpec
+    chain_10k = generate_chain(10000)
+    py_reasoner = PythonReasoner()
+    spec = QuerySpec("lookup", subject="c_5000")
+    latencies = []
+    for _ in range(5):
+        t0 = time.perf_counter()
+        py_reasoner.query(chain_10k, spec)
+        latencies.append((time.perf_counter() - t0) * 1000)
+    latencies.sort()
+    results["python_10k_query_p50_ms"] = round(latencies[len(latencies) // 2], 2)
+
+    # 6. Validate 10k-assertion lattice (< 1000 ms)
+    lattice_10k = generate_lattice(2500)
+    t0 = time.perf_counter()
+    validator.validate(lattice_10k)
+    results["lattice_10k_validate_ms"] = round((time.perf_counter() - t0) * 1000, 2)
+
     return results

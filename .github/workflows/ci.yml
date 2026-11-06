@@ -90,3 +90,25 @@ jobs:
       run: |
         coverage run --source=src/ontology_spider -m unittest discover -s tests
         coverage report --fail-under=90
+
+  benchmark:
+    name: Latency Benchmark & Budgets
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install SWI-Prolog
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y swi-prolog swi-prolog-nox swi-prolog-packages || sudo apt-get install -y swi-prolog
+
+    - name: Run Benchmark with Budgets
+      env:
+        PYTHONPATH: src
+      run: |
+        python -m ontology_spider.harness bench --budget src/ontology_spider/harness/baselines/bench_budgets.json

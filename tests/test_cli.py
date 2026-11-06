@@ -1,3 +1,5 @@
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -112,12 +114,22 @@ assert b subclass_of a
             "export invalid_format_xyz",
             "query what is car?",
             "explain",
+            "assert sedan instance_of car [wheels=4]",
+            "query recommend car",
+            "explain",
             "malformed syntax %%%",
             "quit",
         ]
-        with patch("builtins.input", side_effect=inputs):
+        buf = io.StringIO()
+        with patch("builtins.input", side_effect=inputs), contextlib.redirect_stdout(buf):
             exit_code = main(["repl", "--file", str(self.valid_dialog)])
+        out = buf.getvalue()
         self.assertEqual(exit_code, 0)
+        self.assertIn("[frame-filtered: 0 remaining]", out)
+        self.assertIn("No preceding query answer to explain.", out)
+        self.assertIn("sedan", out)
+        self.assertIn("Explanation for previous answers:", out)
+        self.assertIn("sedan instance_of car", out)
 
 
 if __name__ == "__main__":

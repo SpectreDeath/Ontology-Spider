@@ -101,10 +101,15 @@ class DialogSession:
             aid = attrs.pop("_id", None)
             src = attrs.pop("_source", "dialog_session")
             tid = attrs.pop("_turn", turn_id)
-            prov = Provenance(
-                source=src,
-                turn_id=tid,
-            )
+            ts = attrs.pop("_timestamp", None)
+            parents_str = attrs.pop("_parents", None)
+            parents = [p.strip() for p in str(parents_str).split(",") if p.strip()] if parents_str else []
+            kwargs: dict[str, Any] = {"source": src, "turn_id": tid}
+            if ts:
+                kwargs["timestamp"] = str(ts)
+            if parents:
+                kwargs["parent_turn_ids"] = parents
+            prov = Provenance(**kwargs)
             asrt = self.model.add_assertion(
                 relation=Relation(stmt.subject, stmt.predicate, stmt.object),
                 provenance=prov,
@@ -389,6 +394,7 @@ class DialogSession:
                     subject=cls_name,
                     req_key=query.filter_key,
                     req_val=f_val,
+                    filter_attributes=dict(query.filter_attributes),
                 )
                 prefix = ""
             self.last_query_result = reasoner_res

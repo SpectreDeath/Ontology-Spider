@@ -1,0 +1,46 @@
+# Violation test ontology
+dialog urn:ontology:violations
+
+# Classes
+assert entity subclass_of top
+assert animal subclass_of entity
+assert plant subclass_of entity
+assert mineral subclass_of entity
+assert food subclass_of entity
+assert synthetic subclass_of entity
+assert land_vehicle subclass_of entity
+assert air_vehicle subclass_of entity
+
+# Disjointness
+assert land_vehicle disjoint_with air_vehicle
+
+# Relation constraints
+assert eats domain animal
+assert feeds_on range food
+assert component_of acyclic true
+
+# Instances
+assert rock instance_of mineral
+assert grass instance_of plant
+assert lion instance_of animal
+assert plastic instance_of synthetic
+
+# 1. Domain violation
+assert rock eats grass
+
+# 2. Range violation
+assert lion feeds_on plastic
+
+# 3. Disjointness violation
+assert flying_car instance_of land_vehicle
+assert flying_car instance_of air_vehicle
+
+# 4. Cycle violation
+assert part_a instance_of entity
+assert part_b instance_of entity
+assert part_a component_of part_b
+assert part_b component_of part_a
+
+# Queries
+query what is lion?
+query what is flying_car?

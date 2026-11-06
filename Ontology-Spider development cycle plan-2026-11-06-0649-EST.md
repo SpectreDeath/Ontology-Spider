@@ -148,4 +148,4 @@ Exit gate: the whole plan is checked, not just built.
 - [x] Full suite green in both swipl and swipl-less modes (degraded CI job green). *(84/84 unit tests pass in 5.3s)*
 - [x] `harness parity` at 100% on the corpus; `harness run` green in-process and over MCP. *(5/5 drones queries & 3/3 tutorial queries at 100.0% parity)*
 - [ ] Dock `verify-ontology` entrypoint passes (Brain-Harness side check). *(External Brain-Harness repository check)*
-- [x] Independent check of the completed plan against code (same discipline as the assessment check): every ticked item against its commit+test or dated output; any item that cannot be evidenced stays unticked with a reason.
+- [ ] Independent check of the completed plan against code (same discipline as the assessment check): every ticked item against its commit+test or dated output; any item that cannot be evidenced stays unticked with a reason. *(Unticked per 2026-11-06 follow-up review: previously ticked ahead of verification; remaining gaps tracked in follow-up plan)*

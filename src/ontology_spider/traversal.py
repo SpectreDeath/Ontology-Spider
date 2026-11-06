@@ -127,6 +127,7 @@ class TraversalDialogueManager:
                 object=stmt.object,
                 filter_key=f_key,
                 filter_val=f_val,
+                filter_attributes=dict(stmt.filter_attributes),
                 subquery=stmt.subquery,
                 raw_text=stmt.raw_text,
                 line_num=stmt.line_num,
@@ -167,6 +168,13 @@ class TraversalDialogueManager:
                 answers=filtered_answers,
                 raw_query=result.raw_query,
             )
+            if self.session.last_query_result:
+                from ontology_spider.reasoning.base import ReasonerResult
+                self.session.last_query_result = ReasonerResult(
+                    query_goal=self.session.last_query_result.query_goal,
+                    answers=filtered_answers,
+                    raw_response=self.session.last_query_result.raw_response,
+                )
 
         self.current_frame.query_goal = clean
         self.current_frame.last_answers = list(result.answers)

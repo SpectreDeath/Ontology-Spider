@@ -66,3 +66,68 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Rationale**:
   - Aligns with the user's companion repositories (`Em-Cubed` and `brain-harness`, which both floor at 3.10).
   - Enables modern Python features: pattern matching (`match/case`), improved union type syntax (`X | Y`), and modern dataclass features, while remaining compatible with standard enterprise and developer installations.
+
+---
+
+## 7. Development Cycle Track 0 Decisions & Recommendations
+
+### 7.1 MCP Server Implementation: Stdlib Hand-Roll
+- **Decision**: Hand-roll the Model Context Protocol (MCP) server using Python's standard library (`sys.stdin`, `sys.stdout`, `json`) without importing third-party MCP SDKs (e.g. `mcp`).
+- **Rationale**:
+  - Strictly adheres to the zero-external-dependencies guardrail (`dependencies = []`).
+  - Stdio JSON-RPC 2.0 transport requires <350 lines of code, covering `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
+
+### 7.2 Canonical `recommend` Semantics: Transitive Subclass Closure
+- **Decision**: Canonical `recommend <Class>` semantics evaluate over the full transitive reflexive closure of `subclass_of` relations, matching Python's graph search behavior rather than shallow 1-hop peer search.
+- **Rationale**:
+  - If `quadcopter subclass_of drone` and `drone subclass_of aerial_vehicle`, asking for recommendations of `aerial_vehicle` must include instances of `quadcopter`.
+  - Prolog rules (`rules.pl`) were updated with `subclass_closure/3` to achieve 100% differential parity.
+
+### 7.3 Grammar Realization: Multi-Attribute Recommend & Trailing Explain
+- **Decision**: Implement grammar support in `dialog.py` for bracketed multi-attribute queries (`recommend <Class> [key=val, ...]`) and trailing `... explain`.
+- **Rationale**:
+  - Synchronizes the formal grammar with examples presented in documentation and the README.
+  - Eliminates silent syntax errors when executing multi-constraint recommendations or requesting inline explanations.
+
+### 7.4 Test & Benchmark Harness Placement
+- **Decision**: Package the testing, synthetic topology generator, and benchmarking harness directly inside `src/ontology_spider/harness/` rather than outside in a detached directory.
+- **Rationale**:
+  - The harness is a product feature callable by agents and CI via `python -m ontology_spider.harness`.
+  - Enables self-contained property checks, benchmarking, and differential parity tests across backends without relying on external test frameworks.
+
+### 7.5 MCP Mutation & Sandboxing Policy
+- **Status**: **Recommendation pending user sign-off** (not a settled decision).
+- **Proposed Policy**:
+  - By default, allow in-memory session mutations (`assert_triple`, `declare_entity`, `retract`, `run_dialog`, `focus`, `constrain`) over stdio MCP.
+  - Strictly disable all mutation tools when launched with `--read-only`.
+  - Confine all file system reads and writes (`model_load`, `export`) to `--root` directory via `Path.resolve().relative_to(root_dir)`.
+  - Enforce bounds on max active sessions (32) and max assertions per session (50,000).
+- **Rationale**:
+  - In-memory mutations permit agents to explore counterfactuals or build interactive ontologies without persistent disk side-effects, while `--read-only` provides a strict safety latch.
+
+### 7.6 CI Statement Coverage Progression and Fail-Under Gate
+- **Decision**: Enforce a mandatory `--fail-under=90` gate in `.github/workflows/ci.yml` and keep statement coverage above 90% across the codebase.
+- **Progression**:
+  - `881a22a`: 78% statement coverage (3,069 statements, 665 missed; `python_backend.py` at 29%).
+  - `0daeca5`: 91% statement coverage (3,074 statements, 274 missed across 89 unit tests; `python_backend.py` at 98%).
+  - Current HEAD: 91% statement coverage (3,492 statements, 319 missed across 96 unit tests).
+- **Rationale**:
+  - A strict 90% coverage bar ensures that newly added features (such as MCP transports, synthetic generators, elicitation amendments, and multi-attribute recommendations) do not create unexercised code paths or regressions.
+
+### 7.7 Prolog BFS Frontier Reachability & Diamond DAG Termination
+- **Decision**: Replace recursive DFS path search in `src/ontology_spider/prolog/rules.pl` (`transitive_path/6` and `ancestor_of/5`) with deterministic Breadth-First Search (BFS) frontier expansion (`bfs_transitive_all`, `bfs_ancestors_all`).
+- **Rationale**:
+  - Naive recursive DFS enumerates all simple paths between nodes, resulting in $O(2^N)$ path explosion on lattice and diamond DAGs. On a 20-node diamond lattice, Prolog previously enumerated 2,388 simple paths, exceeding the 1,000-result cap.
+  - The BFS loop visits each reachable target node exactly once along its first insertion-ordered shortest proof path, executing the 20-node lattice ancestor query in ~1.5 ms without path explosion, exactly matching the Python reasoner's BFS behavior.
+
+### 7.8 Benchmark Suite Budgets & Calibration Calibration Baseline
+- **Decision**: Enforce performance budgets via `src/ontology_spider/harness/baselines/bench_budgets.json` in a dedicated CI job:
+  1. `lattice_20_ancestors_p50_ms` < 15.0 ms
+  2. `python_10k_query_p50_ms` < 5.0 ms
+  3. `lattice_10k_validate_ms` < 1000.0 ms
+  4. Full test suite execution < 4000.0 ms (target)
+- **Baseline Machine Specs**:
+  - OS: Windows 11 Pro 64-bit
+  - CPU: AMD Ryzen 9 / x86_64
+  - Python: 3.13.0 64-bit
+  - SWI-Prolog: 9.2.x 64-bit (persistent worker subprocess bridge)

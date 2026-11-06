@@ -115,14 +115,83 @@ class TestHarnessProperties(unittest.TestCase):
         self.assertIsInstance(q_res.to_dict(), dict)
 
     def test_harness_cli_commands(self):
+        import tempfile
+        from pathlib import Path
         from ontology_spider.harness.__main__ import main as harness_main
+        from ontology_spider.harness.runner import HarnessRunner, ScenarioResult, HarnessReport
 
         self.assertEqual(harness_main(["parity", "--model", "examples/tutorial.dialog"]), 0)
-        self.assertEqual(harness_main(["run"]), 0)
+        self.assertEqual(harness_main(["parity", "--model", "examples/missing_file.dialog"]), 1)
+        self.assertEqual(harness_main(["run", "--transport", "inproc"]), 0)
+        self.assertEqual(harness_main(["run", "--transport", "mcp"]), 0)
+        self.assertEqual(harness_main(["run", "--backend", "python"]), 0)
+        self.assertEqual(harness_main(["run", "--backend", "prolog"]), 0)
+        self.assertEqual(harness_main(["run", "--dir", "missing_dir"]), 1)
         self.assertEqual(harness_main(["corpus"]), 0)
-        self.assertEqual(harness_main(["bench"]), 0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            rep_json = tmppath / "report.json"
+            rep_md = tmppath / "report.md"
+            self.assertEqual(harness_main(["run", "--report-json", str(rep_json), "--report-md", str(rep_md)]), 0)
+            self.assertTrue(rep_json.is_file())
+            self.assertTrue(rep_md.is_file())
+
+            bench_json = tmppath / "bench.json"
+            budget_json = tmppath / "budget.json"
+            budget_json.write_text('{"chain_50_ancestors_p50_ms": 1000.0}', encoding="utf-8")
+            self.assertEqual(harness_main(["bench", "--save", str(bench_json), "--budget", str(budget_json)]), 0)
+            self.assertTrue(bench_json.is_file())
+
+            tight_budget = tmppath / "tight.json"
+            tight_budget.write_text('{"chain_50_ancestors_p50_ms": 0.00001}', encoding="utf-8")
+            self.assertEqual(harness_main(["bench", "--budget", str(tight_budget)]), 2)
+
         for topo in ["chain", "tree", "lattice", "random_dag", "cyclic"]:
             self.assertEqual(harness_main(["gen", topo, "--size", "6"]), 0)
+
+        # Dataclass serialization
+        sr = ScenarioResult("sc", True, 2, 2, 1.0, True, "ok")
+        self.assertIsInstance(sr.to_dict(), dict)
+        hr = HarnessReport(2, 2, 1.0)
+        self.assertIsInstance(hr.to_dict(), dict)
+
+        # Runner individual scenario tests
+        runner = HarnessRunner()
+        res_py = runner.run_scenario({"scenario": "drones", "model": "examples/drones.dialog", "queries": ["query what is sky_scout?"]}, backend="python", transport="inproc")
+        self.assertTrue(res_py.passed)
+        res_pl = runner.run_scenario({"scenario": "drones", "model": "examples/drones.dialog", "queries": ["query what is sky_scout?"]}, backend="prolog", transport="inproc")
+        self.assertTrue(res_pl.passed)
+
+    def test_dialog_roundtrip_lossless_types_and_provenance(self):
+        from ontology_spider.model import OntologyModel, Relation, Provenance, Entity
+        from ontology_spider.harness.properties import check_dialog_roundtrip_identity
+        from ontology_spider.export import to_dot
+
+        m = OntologyModel(uri="urn:test:lossless")
+        m.add_entity(Entity(
+            id="agent_1",
+            name="Bond",
+            attributes={"code": "007", "speed": 50, "note": "line1\nline2", "empty": ""}
+        ))
+        prov = Provenance(
+            source="source.dialog",
+            timestamp="2026-11-06T12:00:00Z",
+            turn_id="turn_42",
+            parent_turn_ids=["turn_40", "turn_41"],
+        )
+        m.add_assertion(
+            relation=Relation(subject="agent_1", predicate="has_license", object="to_kill"),
+            provenance=prov,
+            assertion_id="asrt_bond_007",
+            attributes={"numeric_str": "-3.14", "val_float": -3.14, "quote": 'say "hi"'},
+        )
+
+        self.assertTrue(check_dialog_roundtrip_identity(m))
+
+        m.add_entity(Entity(id="quote_ent", name='say "hi"'))
+        dot_str = to_dot(m)
+        self.assertIn('label="say \\"hi\\""', dot_str)
 
 
 if __name__ == "__main__":

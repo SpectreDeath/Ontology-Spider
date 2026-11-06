@@ -1,0 +1,8 @@
+{
+  "scenario": "lattice",
+  "model": "examples/lattice.dialog",
+  "queries": [
+    "query ancestors of bottom",
+    "query transitive subclass_of from bottom"
+  ]
+}

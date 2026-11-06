@@ -7,45 +7,68 @@
 :- dynamic attribute/3.
 
 % ------------------------------------------------------------------------------
-% Transitive closure with visited-node cycle guard and proof tracing
+% BFS Transitive closure with visited-node cycle guard and proof tracing
 % transitive_path(+Start, +Predicate, -End, -Path, -RulesFired, -FactIds)
 % ------------------------------------------------------------------------------
 
-transitive_path(Start, Predicate, End, Path, RulesFired, FactIds) :-
-    transitive_step(Start, Predicate, End, [Start], RevPath, FactIds),
-    reverse(RevPath, Path),
-    RulesFired = [transitive_closure].
+transitive_path(Start, Predicate, End, Path, [transitive_closure], FactIds) :-
+    bfs_transitive_all(Start, Predicate, AllAnswers),
+    member(ans(End, Path, FactIds), AllAnswers).
 
-transitive_step(Current, Predicate, Next, Visited, [Next, Current | VisitedTail], [AsrtId]) :-
-    triple(Current, Predicate, Next, AsrtId),
-    \+ member(Next, Visited),
-    Visited = [Current | VisitedTail].
+bfs_transitive_all(Start, Predicate, AllAnswers) :-
+    bfs_transitive_loop([q(Start, [Start], [])], [Start], Predicate, [], AllAnswers).
 
-transitive_step(Current, Predicate, End, Visited, FinalPath, [AsrtId | RestFactIds]) :-
-    triple(Current, Predicate, Intermediate, AsrtId),
-    \+ member(Intermediate, Visited),
-    transitive_step(Intermediate, Predicate, End, [Intermediate | Visited], FinalPath, RestFactIds).
+bfs_transitive_loop([], _Visited, _Predicate, Acc, Acc).
+bfs_transitive_loop([q(Curr, RevPath, RevFactIds) | RestQueue], Visited, Predicate, Acc, AllAnswers) :-
+    findall(
+        cand(Next, AsrtId),
+        ( triple(Curr, Predicate, Next, AsrtId),
+          \+ member(Next, Visited) ),
+        Candidates
+    ),
+    filter_candidates(Candidates, RevPath, RevFactIds, Visited, NewQueue, NewAnswers, UpdatedVisited),
+    append(RestQueue, NewQueue, NextQueue),
+    append(Acc, NewAnswers, NextAcc),
+    bfs_transitive_loop(NextQueue, UpdatedVisited, Predicate, NextAcc, AllAnswers).
 
 % ------------------------------------------------------------------------------
-% Ancestry (subclass_of and instance_of hierarchy)
+% BFS Ancestry (subclass_of and instance_of hierarchy)
 % ancestor_of(+Entity, -Ancestor, -Path, -RulesFired, -FactIds)
 % ------------------------------------------------------------------------------
 
 ancestor_of(Entity, Ancestor, Path, [ancestor_rule], FactIds) :-
-    ancestor_step(Entity, Ancestor, [Entity], RevPath, FactIds),
-    reverse(RevPath, Path).
+    bfs_ancestors_all(Entity, AllAnswers),
+    member(ans(Ancestor, Path, FactIds), AllAnswers).
 
-ancestor_step(Current, Super, Visited, [Super, Current | VisitedTail], [AsrtId]) :-
-    ( triple(Current, subclass_of, Super, AsrtId)
-    ; triple(Current, instance_of, Super, AsrtId) ),
-    \+ member(Super, Visited),
-    Visited = [Current | VisitedTail].
+bfs_ancestors_all(Start, AllAnswers) :-
+    bfs_ancestors_loop([q(Start, [Start], [])], [Start], [], AllAnswers).
 
-ancestor_step(Current, Ancestor, Visited, FinalPath, [AsrtId | RestFactIds]) :-
-    ( triple(Current, subclass_of, Next, AsrtId)
-    ; triple(Current, instance_of, Next, AsrtId) ),
-    \+ member(Next, Visited),
-    ancestor_step(Next, Ancestor, [Next | Visited], FinalPath, RestFactIds).
+bfs_ancestors_loop([], _Visited, Acc, Acc).
+bfs_ancestors_loop([q(Curr, RevPath, RevFactIds) | RestQueue], Visited, Acc, AllAnswers) :-
+    findall(
+        cand(Next, AsrtId),
+        ( triple(Curr, Pred, Next, AsrtId),
+          ( Pred = subclass_of ; Pred = instance_of ),
+          \+ member(Next, Visited) ),
+        Candidates
+    ),
+    filter_candidates(Candidates, RevPath, RevFactIds, Visited, NewQueue, NewAnswers, UpdatedVisited),
+    append(RestQueue, NewQueue, NextQueue),
+    append(Acc, NewAnswers, NextAcc),
+    bfs_ancestors_loop(NextQueue, UpdatedVisited, NextAcc, AllAnswers).
+
+% Shared BFS helper for filtering candidates and building queue and answers
+filter_candidates([], _RevPath, _RevFactIds, Visited, [], [], Visited).
+filter_candidates([cand(Next, AsrtId) | Rest], RevPath, RevFactIds, Visited, QueueOut, AnsOut, FinalVisited) :-
+    ( member(Next, Visited) ->
+        filter_candidates(Rest, RevPath, RevFactIds, Visited, QueueOut, AnsOut, FinalVisited)
+    ;
+        reverse([Next | RevPath], Path),
+        reverse([AsrtId | RevFactIds], FactIds),
+        filter_candidates(Rest, RevPath, RevFactIds, [Next | Visited], RestQueue, RestAns, FinalVisited),
+        QueueOut = [q(Next, [Next | RevPath], [AsrtId | RevFactIds]) | RestQueue],
+        AnsOut = [ans(Next, Path, FactIds) | RestAns]
+    ).
 
 % ------------------------------------------------------------------------------
 % Subclass closure: reflexive transitive closure over subclass_of

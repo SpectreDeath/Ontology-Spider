@@ -31,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--backend", choices=["prolog", "python", "both"], default="both")
     run_parser.add_argument("--transport", choices=["inproc", "mcp"], default="inproc")
     run_parser.add_argument("--dir", default=str(Path(__file__).parent / "corpus"), help="Corpus directory")
+    run_parser.add_argument("--report-json", help="Optional path to write scenario run report JSON")
+    run_parser.add_argument("--report-md", help="Optional path to write scenario run report Markdown")
 
     # parity command
     parity_parser = subparsers.add_parser("parity", help="Run parity diff between Prolog and Python backends")
@@ -78,24 +80,50 @@ def main(argv: list[str] | None = None) -> int:
             print(f"No scenario files found in {corpus_dir}", file=sys.stderr)
             return 1
 
+        backend = getattr(args, "backend", "both")
+        transport = getattr(args, "transport", "inproc")
+        report_json = getattr(args, "report_json", None)
+        report_md = getattr(args, "report_md", None)
+
         runner = HarnessRunner()
+        results = []
         all_passed = True
         for sf in scenario_files:
             spec = json.loads(sf.read_text(encoding="utf-8"))
-            m_path = Path(spec["model"])
-            if not m_path.is_file():
-                print(f"Scenario {spec['scenario']}: model not found {m_path}", file=sys.stderr)
+            res = runner.run_scenario(spec, backend=backend, transport=transport)
+            results.append(res)
+            status_str = "PASS" if res.passed else "FAIL"
+            print(f"Scenario [{res.scenario}]: {res.queries_passed}/{res.queries_run} queries matched ({res.parity_rate*100:.1f}%) [{status_str}]")
+            if not res.passed:
                 all_passed = False
-                continue
-            model = load_model(m_path)
-            report = runner.run_parity(model, spec["queries"])
-            print(f"Scenario [{spec['scenario']}]: {report.passed_queries}/{report.total_queries} queries matched ({report.parity_rate*100:.1f}%)")
-            if report.parity_rate < 1.0:
-                all_passed = False
-                for d in report.diffs:
-                    print(f"  - Query: {d.query}")
-                    print(f"    Prolog: {d.prolog_answers}")
-                    print(f"    Python: {d.python_answers}")
+                if res.details:
+                    print(f"  {res.details}")
+
+        if report_json:
+            report_data = {
+                "backend": backend,
+                "transport": transport,
+                "all_passed": all_passed,
+                "scenarios": [r.to_dict() for r in results],
+            }
+            Path(report_json).write_text(json.dumps(report_data, indent=2), encoding="utf-8")
+
+        if report_md:
+            md_lines = [
+                "# Ontology-Spider Harness Scenario Report",
+                "",
+                f"- **Backend**: `{backend}`",
+                f"- **Transport**: `{transport}`",
+                f"- **Overall Status**: `{'PASS' if all_passed else 'FAIL'}`",
+                "",
+                "| Scenario | Queries Run | Queries Passed | Parity Rate | Violations Passed | Status |",
+                "|---|---|---|---|---|---|",
+            ]
+            for r in results:
+                status = "PASS" if r.passed else "FAIL"
+                v_status = "PASS" if r.violations_passed else "FAIL"
+                md_lines.append(f"| {r.scenario} | {r.queries_run} | {r.queries_passed} | {r.parity_rate*100:.1f}% | {v_status} | {status} |")
+            Path(report_md).write_text("\n".join(md_lines) + "\n", encoding="utf-8")
 
         return 0 if all_passed else 2
 

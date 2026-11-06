@@ -81,18 +81,26 @@ class OntologyValidator:
 
         superclass_cache: dict[str, set[str]] = {}
 
-        def get_all_superclasses(c: str, visited: Optional[set[str]] = None) -> set[str]:
+        def get_all_superclasses(c: str, in_progress: Optional[set[str]] = None) -> set[str]:
             if c in superclass_cache:
                 return superclass_cache[c]
-            visited = visited or set()
+            if in_progress is None:
+                in_progress = set()
+            in_progress.add(c)
             supers = set()
             for parent in subclass_parents.get(c, set()):
-                if parent not in visited:
-                    visited.add(parent)
-                    supers.add(parent)
-                    supers.update(get_all_superclasses(parent, visited))
+                supers.add(parent)
+                if parent not in in_progress:
+                    supers.update(get_all_superclasses(parent, in_progress))
+            in_progress.remove(c)
             superclass_cache[c] = supers
             return supers
+
+        disjoint_assertions = model.query(predicate=DISJOINT_WITH)
+        disjoint_classes = set()
+        for asrt in disjoint_assertions:
+            disjoint_classes.add(asrt.relation.subject)
+            disjoint_classes.add(asrt.relation.object)
 
         types_cache: dict[str, set[str]] = {}
         class_members: dict[str, set[str]] = {}
@@ -109,8 +117,10 @@ class OntologyValidator:
                 types.add(entity_id)
                 types.update(get_all_superclasses(entity_id))
             types_cache[entity_id] = types
-            for t in types:
-                class_members.setdefault(t, set()).add(entity_id)
+            if disjoint_classes:
+                for t in types:
+                    if t in disjoint_classes:
+                        class_members.setdefault(t, set()).add(entity_id)
             return types
 
         for ent_id in model.entities:

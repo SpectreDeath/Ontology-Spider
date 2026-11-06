@@ -66,8 +66,8 @@ class PythonReasoner(Reasoner):
 
         while queue:
             curr, path, asrts = queue.pop(0)
-            for pred in ("subclass_of", "instance_of"):
-                for a in model.query(subject=curr, predicate=pred):
+            for a in model.get_outgoing(curr):
+                if a.relation.predicate in ("subclass_of", "instance_of"):
                     obj = a.relation.object
                     if obj not in visited:
                         visited.add(obj)
@@ -82,7 +82,7 @@ class PythonReasoner(Reasoner):
                                     fact_ids=[x.assertion_id for x in new_asrts],
                                     path=new_path,
                                     provenance_assertions=new_asrts,
-                                    ),
+                                ),
                             )
                         )
         return ReasonerResult(query_goal=f"ancestors({target})", answers=answers)
@@ -178,15 +178,17 @@ class PythonReasoner(Reasoner):
 
     def _query_recommend(self, model: OntologyModel, spec: QuerySpec) -> ReasonerResult:
         cls_name = spec.object or spec.subject or ""
-        target_classes = {cls_name}
-        queue = [cls_name]
+        ordered_target_classes: list[tuple[str, list[Assertion]]] = []
+        seen_classes: set[str] = {cls_name}
+        queue: list[tuple[str, list[Assertion]]] = [(cls_name, [])]
         while queue:
-            curr = queue.pop(0)
+            curr, chain = queue.pop(0)
+            ordered_target_classes.append((curr, chain))
             for a in model.query(predicate="subclass_of", object=curr):
                 sub = a.relation.subject
-                if sub not in target_classes:
-                    target_classes.add(sub)
-                    queue.append(sub)
+                if sub not in seen_classes:
+                    seen_classes.add(sub)
+                    queue.append((sub, [a] + chain))
 
         attrs_to_check = dict(spec.filter_attributes)
         if spec.filter_key and spec.filter_val is not None and spec.filter_key not in attrs_to_check:
@@ -195,7 +197,7 @@ class PythonReasoner(Reasoner):
         answers: list[ReasonerAnswer] = []
         seen_candidates: set[str] = set()
 
-        for tc in target_classes:
+        for tc, chain in ordered_target_classes:
             for a in model.query(predicate="instance_of", object=tc):
                 cand = a.relation.subject
                 if cand in seen_candidates:
@@ -216,14 +218,15 @@ class PythonReasoner(Reasoner):
                     continue
 
                 seen_candidates.add(cand)
+                subclass_fact_ids = [sub_asrt.assertion_id for sub_asrt in chain]
                 answers.append(
                     ReasonerAnswer(
                         value=cand,
                         explanation=Explanation(
                             rules_fired=["recommend", "instance_of_transitive", "degraded_python_fallback"],
-                            fact_ids=[a.assertion_id],
+                            fact_ids=[a.assertion_id] + subclass_fact_ids,
                             path=[cls_name, cand],
-                            provenance_assertions=[a],
+                            provenance_assertions=[a] + chain,
                         ),
                     )
                 )

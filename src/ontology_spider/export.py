@@ -14,6 +14,67 @@ def to_json(model: OntologyModel, indent: int = 2) -> str:
     return json.dumps(model.to_dict(), indent=indent)
 
 
+def _format_attribute_value(v: Any) -> str:
+    """Format an attribute value for .dialog syntax with proper quoting and escaping."""
+    if isinstance(v, str):
+        is_numeric = False
+        try:
+            int(v)
+            is_numeric = True
+        except ValueError:
+            try:
+                float(v)
+                is_numeric = True
+            except ValueError:
+                pass
+
+        needs_quotes = (
+            v == ""
+            or is_numeric
+            or any(
+                c in v
+                for c in (",", " ", "\t", "\n", "\r", "[", "]", "=", '"', "'", "\\")
+            )
+            or any(ord(c) < 32 or ord(c) == 127 for c in v)
+        )
+        if needs_quotes:
+            escaped: list[str] = []
+            for ch in v:
+                if ch == "\\":
+                    escaped.append("\\\\")
+                elif ch == '"':
+                    escaped.append('\\"')
+                elif ch == "\n":
+                    escaped.append("\\n")
+                elif ch == "\r":
+                    escaped.append("\\r")
+                elif ch == "\t":
+                    escaped.append("\\t")
+                elif ord(ch) < 32 or ord(ch) == 127:
+                    escaped.append(f"\\x{ord(ch):02x}")
+                else:
+                    escaped.append(ch)
+            return f'"{"".join(escaped)}"'
+        return v
+    elif isinstance(v, bool):
+        return "true" if v else "false"
+    elif isinstance(v, (int, float)):
+        return str(v)
+    else:
+        return _format_attribute_value(str(v))
+
+
+def _dot_escape(s: str) -> str:
+    """Escape backslashes, double quotes, and control chars for Graphviz DOT format."""
+    return (
+        s.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+
+
 def to_dialog(model: OntologyModel) -> str:
     """Export model to lossless .dialog authoring format."""
     lines: list[str] = [
@@ -27,15 +88,7 @@ def to_dialog(model: OntologyModel) -> str:
         if ent.name and "name" not in attrs:
             attrs["name"] = ent.name
         if attrs:
-            attr_parts = []
-            for k, v in attrs.items():
-                v_str = str(v)
-                if any(c in v_str for c in (",", " ", "[", "]", "=")):
-                    # Quote if containing delimiters
-                    escaped_v = v_str.replace('"', '\\"')
-                    attr_parts.append(f'{k}="{escaped_v}"')
-                else:
-                    attr_parts.append(f"{k}={v_str}")
+            attr_parts = [f"{k}={_format_attribute_value(v)}" for k, v in attrs.items()]
             lines.append(f"entity {ent.id} [{', '.join(attr_parts)}]")
         else:
             lines.append(f"entity {ent.id}")
@@ -53,15 +106,12 @@ def to_dialog(model: OntologyModel) -> str:
             attrs["_source"] = asrt.provenance.source
         if asrt.provenance.turn_id:
             attrs["_turn"] = asrt.provenance.turn_id
+        if asrt.provenance.timestamp:
+            attrs["_timestamp"] = asrt.provenance.timestamp
+        if asrt.provenance.parent_turn_ids:
+            attrs["_parents"] = ",".join(asrt.provenance.parent_turn_ids)
         if attrs:
-            attr_parts = []
-            for k, v in attrs.items():
-                v_str = str(v)
-                if any(c in v_str for c in (",", " ", "[", "]", "=")):
-                    escaped_v = v_str.replace('"', '\\"')
-                    attr_parts.append(f'{k}="{escaped_v}"')
-                else:
-                    attr_parts.append(f"{k}={v_str}")
+            attr_parts = [f"{k}={_format_attribute_value(v)}" for k, v in attrs.items()]
             line += f" [{', '.join(attr_parts)}]"
         lines.append(line)
 
@@ -73,7 +123,7 @@ def to_dialog(model: OntologyModel) -> str:
 def to_dot(model: OntologyModel) -> str:
     """Export model to Graphviz DOT diagram format."""
     lines: list[str] = [
-        f'digraph "{model.uri}" {{',
+        f'digraph "{_dot_escape(model.uri)}" {{',
         '  rankdir="LR";',
         '  node [shape=box, style="rounded,filled", fillcolor="#f0f4f8", fontname="sans-serif"];',
         '  edge [fontname="sans-serif", fontsize=10];',
@@ -81,13 +131,13 @@ def to_dot(model: OntologyModel) -> str:
 
     for ent in model.entities.values():
         label = ent.name or ent.id
-        lines.append(f'  "{ent.id}" [label="{label}"];')
+        lines.append(f'  "{_dot_escape(ent.id)}" [label="{_dot_escape(label)}"];')
 
     for asrt in model.assertions.values():
         rel = asrt.relation
         style = 'style="dashed"' if rel.predicate == "subclass_of" else ""
         lines.append(
-            f'  "{rel.subject}" -> "{rel.object}" [label="{rel.predicate}" {style}];'
+            f'  "{_dot_escape(rel.subject)}" -> "{_dot_escape(rel.object)}" [label="{_dot_escape(rel.predicate)}" {style}];'
         )
 
     lines.append("}")

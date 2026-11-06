@@ -34,20 +34,24 @@ class StdioTransport:
             while sep.strip() != "":
                 sep = self.in_stream.readline()
             payload = self.in_stream.read(length)
-            if not payload:
+            if not payload or len(payload) < length:
                 return None
-            return json.loads(payload)
+            try:
+                return json.loads(payload)
+            except json.JSONDecodeError:
+                return None
 
         # Fallback to newline-delimited JSON
         line = line.strip()
         if not line:
             return self.read_message()
-        return json.loads(line)
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            return None
 
     def write_message(self, message: dict[str, Any]) -> None:
-        """Write a JSON-RPC message to out_stream formatted with Content-Length."""
-        payload = json.dumps(message, ensure_ascii=False)
-        length = len(payload.encode("utf-8"))
-        header = f"Content-Length: {length}\r\n\r\n"
-        self.out_stream.write(header + payload)
+        """Write a JSON-RPC message to out_stream formatted as NDJSON."""
+        payload = json.dumps(message, ensure_ascii=False) + "\n"
+        self.out_stream.write(payload)
         self.out_stream.flush()

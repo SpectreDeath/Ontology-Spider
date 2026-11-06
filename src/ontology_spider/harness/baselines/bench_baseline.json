@@ -1,5 +1,10 @@
 {
-  "chain_50_ancestors_p50_ms": 7.42,
-  "tree_100_recommend_p50_ms": 0.39,
-  "lattice_50_validate_p50_ms": 0.64
+  "calibration_machine": "Windows x86_64, Intel/AMD multi-core, Python 3.13, SWI-Prolog 9.x",
+  "measured_at": "2026-11-06T18:48:00Z",
+  "chain_50_ancestors_p50_ms": 7.66,
+  "tree_100_recommend_p50_ms": 0.61,
+  "lattice_50_validate_p50_ms": 0.41,
+  "lattice_20_ancestors_p50_ms": 1.32,
+  "python_10k_query_p50_ms": 0.05,
+  "lattice_10k_validate_ms": 881.75
 }

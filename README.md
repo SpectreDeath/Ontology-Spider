@@ -65,20 +65,21 @@ pip install -e .
 *(Alternative without installation: set `PYTHONPATH=src` or `$env:PYTHONPATH="src;."` before running commands.)*
 
 ### Running Tests & Coverage
+The test suite contains 96 unit tests with >=90% statement coverage:
 ```bash
 # Run all tests
 python -m unittest discover -s tests
 
 # Check test coverage
 coverage run -m unittest discover -s tests
-coverage report
+coverage report --fail-under=90
 ```
 
 ---
 
 ## CLI Usage
 
-Ontology-Spider provides 5 CLI subcommands:
+Ontology-Spider provides 6 CLI subcommands:
 
 ### 1. Run a `.dialog` Script (`run`)
 Batch-executes an authoring script, evaluates queries, and prints formatted answers and explanations:
@@ -121,6 +122,12 @@ python -m ontology_spider.cli export examples/drones.dialog --format json -o out
 Runs a step-by-step competency-driven ontology authoring session with mandatory confirmation:
 ```bash
 python -m ontology_spider.cli elicit --output my_ontology.dialog
+```
+
+### 6. Model Context Protocol Server (`mcp`)
+Starts an MCP stdio server over NDJSON/JSON-RPC 2.0 with session isolation, reasoner selection, and timeout/assertion caps:
+```bash
+python -m ontology_spider.cli mcp --model examples/drones.dialog --backend auto
 ```
 
 ---
@@ -173,26 +180,40 @@ Ontology-Spider/
 │   ├── model.py                # OntologyModel, Entity, Relation, Assertion, Provenance
 │   ├── dialog.py               # DialogParser, AST statements, and serializer
 │   ├── dialog_runner.py        # DialogSession, query execution, and proof traces
+│   ├── engine.py               # Engine facade, QueryResult, and SessionManager
 │   ├── elicitation.py          # Guided elicitation state machine & amendments
 │   ├── traversal.py            # DialogueFrame stack & conversational focus
 │   ├── validation.py           # OntologyValidator & schema constraints
 │   ├── export.py               # Multi-format serializers (JSON, Dialog, DOT, HTML)
 │   ├── seam.py                 # Pluggable ModelSource abstraction
 │   ├── api.py                  # High-level public facade
-│   ├── cli.py                  # 5 CLI subcommands (run, repl, validate, export, elicit)
-│   └── prolog/                 # Logic reasoning layer
-│       ├── rules.pl            # Pure Prolog inference rules
-│       ├── reasoner.py         # SWI-Prolog runner & Python degraded fallback
-│       └── translator.py       # Bi-directional Prolog <-> Model translation
+│   ├── cli.py                  # 6 CLI subcommands (run, repl, validate, export, elicit, mcp)
+│   ├── reasoning/              # Dual reasoner architecture
+│   │   ├── base.py             # Reasoner protocol, QuerySpec, Explanation, ReasonerResult
+│   │   └── python_backend.py   # Pure-Python BFS & graph reasoner implementation
+│   ├── prolog/                 # SWI-Prolog logic reasoning layer
+│   │   ├── rules.pl            # Pure Prolog inference rules
+│   │   ├── reasoner.py         # Thread-safe SWI-Prolog bridge & cache manager
+│   │   ├── worker.py           # Long-lived persistent Prolog worker process
+│   │   └── translator.py       # Bi-directional Prolog <-> Model translation
+│   ├── mcp/                    # Model Context Protocol stdio server
+│   │   ├── server.py           # JSON-RPC 2.0 tool and resource dispatcher
+│   │   └── transport.py        # Stdio NDJSON and Content-Length transport
+│   └── harness/                # Testing, synthetic topology, & benchmark harness
+│       ├── generators.py       # Synthetic ontology generators (chain, tree, lattice, dag, cyclic)
+│       ├── properties.py       # Property-based invariants (monotonicity, roundtrip, cycles)
+│       ├── runner.py           # Differential parity evaluator
+│       └── bench.py            # p50/p95 latency benchmark runner
 ├── examples/                   # Reference ontologies & adapter demonstrations
 │   ├── tutorial.dialog         # Getting-started tutorial corpus
 │   ├── drones.dialog           # Comprehensive UAV & subsystem benchmark
 │   └── vault_adapter.py        # Reference Seam adapter implementation
-├── tests/                      # 70 unit tests (90% statement coverage)
+├── tests/                      # Unit and integration test suite (96 tests, >=90% statement coverage)
 └── docs/                       # Specifications and reference manuals
     ├── language_reference.md   # .dialog grammar & query syntax
+    ├── semantics.md            # Canonical reasoning semantics & answer contracts
     ├── tutorial.md             # End-to-end tutorial walkthrough
-    ├── architecture.md         # Trust model, safety, & deferred features
+    ├── architecture.md         # Trust model, seam architecture, & safety bounds
     ├── seam.md                 # Seam specification for external plugins
     └── decisions.md            # Foundational architectural decisions
 ```

@@ -154,13 +154,13 @@ class OntologyModel:
         self._assertions: dict[str, Assertion] = {}
         self._version: int = 0
 
-        # Indices
-        self._by_subject: dict[str, set[str]] = {}
-        self._by_predicate: dict[str, set[str]] = {}
-        self._by_object: dict[str, set[str]] = {}
-        self._by_pred_subj: dict[tuple[str, str], set[str]] = {}
-        self._by_pred_obj: dict[tuple[str, str], set[str]] = {}
-        self._by_turn: dict[str, set[str]] = {}
+        # Indices (dict[str, None] preserves exact insertion order)
+        self._by_subject: dict[str, dict[str, None]] = {}
+        self._by_predicate: dict[str, dict[str, None]] = {}
+        self._by_object: dict[str, dict[str, None]] = {}
+        self._by_pred_subj: dict[tuple[str, str], dict[str, None]] = {}
+        self._by_pred_obj: dict[tuple[str, str], dict[str, None]] = {}
+        self._by_turn: dict[str, dict[str, None]] = {}
 
     @property
     def uuid(self) -> str:
@@ -272,14 +272,14 @@ class OntologyModel:
         )
         self._assertions[aid] = asrt
 
-        # Indexing
-        self._by_subject.setdefault(relation.subject, set()).add(aid)
-        self._by_predicate.setdefault(relation.predicate, set()).add(aid)
-        self._by_object.setdefault(relation.object, set()).add(aid)
-        self._by_pred_subj.setdefault((relation.predicate, relation.subject), set()).add(aid)
-        self._by_pred_obj.setdefault((relation.predicate, relation.object), set()).add(aid)
+        # Indexing (dict[str, None] preserves exact insertion order)
+        self._by_subject.setdefault(relation.subject, {})[aid] = None
+        self._by_predicate.setdefault(relation.predicate, {})[aid] = None
+        self._by_object.setdefault(relation.object, {})[aid] = None
+        self._by_pred_subj.setdefault((relation.predicate, relation.subject), {})[aid] = None
+        self._by_pred_obj.setdefault((relation.predicate, relation.object), {})[aid] = None
         if provenance.turn_id:
-            self._by_turn.setdefault(provenance.turn_id, set()).add(aid)
+            self._by_turn.setdefault(provenance.turn_id, {})[aid] = None
 
         self._version += 1
         return asrt
@@ -293,23 +293,23 @@ class OntologyModel:
         self._version += 1
         rel = asrt.relation
         if rel.subject in self._by_subject:
-            self._by_subject[rel.subject].discard(assertion_id)
+            self._by_subject[rel.subject].pop(assertion_id, None)
         if rel.predicate in self._by_predicate:
-            self._by_predicate[rel.predicate].discard(assertion_id)
+            self._by_predicate[rel.predicate].pop(assertion_id, None)
         if rel.object in self._by_object:
-            self._by_object[rel.object].discard(assertion_id)
+            self._by_object[rel.object].pop(assertion_id, None)
         if (rel.predicate, rel.subject) in self._by_pred_subj:
-            self._by_pred_subj[(rel.predicate, rel.subject)].discard(assertion_id)
+            self._by_pred_subj[(rel.predicate, rel.subject)].pop(assertion_id, None)
         if (rel.predicate, rel.object) in self._by_pred_obj:
-            self._by_pred_obj[(rel.predicate, rel.object)].discard(assertion_id)
+            self._by_pred_obj[(rel.predicate, rel.object)].pop(assertion_id, None)
         if asrt.provenance.turn_id and asrt.provenance.turn_id in self._by_turn:
-            self._by_turn[asrt.provenance.turn_id].discard(assertion_id)
+            self._by_turn[asrt.provenance.turn_id].pop(assertion_id, None)
 
         return asrt
 
     def retract_by_turn_id(self, turn_id: str) -> list[Assertion]:
         """Retract all assertions produced during a given dialog turn."""
-        aids = list(self._by_turn.get(turn_id, set()))
+        aids = list(self._by_turn.get(turn_id, {}).keys())
         retracted = []
         for aid in aids:
             res = self.retract_assertion(aid)
@@ -323,33 +323,39 @@ class OntologyModel:
         predicate: Optional[str] = None,
         object: Optional[str] = None,
     ) -> list[Assertion]:
-        """Query assertions matching the triple pattern."""
+        """Query assertions matching the triple pattern in deterministic insertion order."""
         if subject is not None and predicate is not None and object is None:
-            aids = self._by_pred_subj.get((predicate, subject), set())
+            aids = self._by_pred_subj.get((predicate, subject), {})
             return [self._assertions[aid] for aid in aids if aid in self._assertions]
         if object is not None and predicate is not None and subject is None:
-            aids = self._by_pred_obj.get((predicate, object), set())
+            aids = self._by_pred_obj.get((predicate, object), {})
             return [self._assertions[aid] for aid in aids if aid in self._assertions]
         if subject is not None and predicate is None and object is None:
-            aids = self._by_subject.get(subject, set())
+            aids = self._by_subject.get(subject, {})
             return [self._assertions[aid] for aid in aids if aid in self._assertions]
         if predicate is not None and subject is None and object is None:
-            aids = self._by_predicate.get(predicate, set())
+            aids = self._by_predicate.get(predicate, {})
             return [self._assertions[aid] for aid in aids if aid in self._assertions]
         if object is not None and subject is None and predicate is None:
-            aids = self._by_object.get(object, set())
+            aids = self._by_object.get(object, {})
             return [self._assertions[aid] for aid in aids if aid in self._assertions]
 
-        candidates: Optional[set[str]] = None
+        candidates: Optional[dict[str, None]] = None
 
         if subject is not None:
-            candidates = set(self._by_subject.get(subject, set()))
+            candidates = dict(self._by_subject.get(subject, {}))
         if predicate is not None:
-            pred_set = self._by_predicate.get(predicate, set())
-            candidates = pred_set if candidates is None else candidates & pred_set
+            pred_dict = self._by_predicate.get(predicate, {})
+            if candidates is None:
+                candidates = dict(pred_dict)
+            else:
+                candidates = {aid: None for aid in candidates if aid in pred_dict}
         if object is not None:
-            obj_set = self._by_object.get(object, set())
-            candidates = obj_set if candidates is None else candidates & obj_set
+            obj_dict = self._by_object.get(object, {})
+            if candidates is None:
+                candidates = dict(obj_dict)
+            else:
+                candidates = {aid: None for aid in candidates if aid in obj_dict}
 
         if candidates is None:
             return list(self._assertions.values())

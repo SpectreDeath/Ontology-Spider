@@ -213,7 +213,7 @@ def run_repl(file_path: Optional[str] = None) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dialog",
         description="Ontology-Spider conversational ontological engine CLI",
@@ -223,6 +223,14 @@ def main(argv: list[str] | None = None) -> int:
     # run command
     run_parser = subparsers.add_parser("run", help="Run a .dialog script in batch mode")
     run_parser.add_argument("file", help="Path to .dialog file")
+
+    # repl command
+    repl_parser = subparsers.add_parser(
+        "repl", help="Start interactive dialog REPL session"
+    )
+    repl_parser.add_argument(
+        "-f", "--file", help="Optional path to preload an ontology into REPL"
+    )
 
     # validate command
     val_parser = subparsers.add_parser(
@@ -251,21 +259,25 @@ def main(argv: list[str] | None = None) -> int:
         "-o", "--output", help="Optional path to save elicited .dialog file"
     )
 
-    # repl command
-    repl_parser = subparsers.add_parser(
-        "repl", help="Start interactive dialog REPL session"
-    )
-    repl_parser.add_argument(
-        "-f", "--file", help="Optional path to preload an ontology into REPL"
-    )
-
     # mcp command
     mcp_parser = subparsers.add_parser(
         "mcp", help="Run stdio JSON-RPC 2.0 MCP server"
     )
+    mcp_parser.add_argument("--model", help="Optional path to preload an ontology into default session")
+    mcp_parser.add_argument(
+        "--backend",
+        choices=["prolog", "python", "auto"],
+        default="auto",
+        help="Reasoner backend selection",
+    )
     mcp_parser.add_argument("--read-only", action="store_true", help="Disallow mutating sessions or models")
     mcp_parser.add_argument("--root", default=str(Path.cwd()), help="Root filesystem sandbox path")
 
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -281,7 +293,13 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "mcp":
         from ontology_spider.mcp.server import MCPServer
         from ontology_spider.mcp.transport import StdioTransport
-        server = MCPServer(transport=StdioTransport(), read_only=args.read_only, root_dir=Path(args.root))
+        server = MCPServer(
+            transport=StdioTransport(),
+            read_only=args.read_only,
+            root_dir=Path(args.root),
+            backend=None if args.backend == "auto" else args.backend,
+            preload_model_path=Path(args.model) if args.model else None,
+        )
         server.run()
         return 0
 

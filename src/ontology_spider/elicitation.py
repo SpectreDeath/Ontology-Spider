@@ -198,6 +198,15 @@ class ElicitationManager:
 
         # Record competency question
         self.competency_queries.append(clean)
+        cq_turn = ElicitedTurn(
+            turn_id=self._next_turn_id(),
+            state=ElicitationState.COMPETENCY_QUESTIONS,
+            prompt="What competency question should this ontology answer?",
+            user_response=clean,
+            confirmed=True,
+            phase=ElicitationState.COMPETENCY_QUESTIONS,
+        )
+        self.turns.append(cq_turn)
         self.current_prompt = "Competency query recorded. Enter another or 'done':"
         return self.current_prompt
 
@@ -524,123 +533,183 @@ class ElicitationManager:
         phase = target_turn.phase or ElicitationState.ELICIT_CLASSES
         applied_msg = ""
 
-        if phase == ElicitationState.ELICIT_CLASSES:
-            tokens = new_input.strip().split()
-            if len(tokens) == 3 and tokens[1] == "subclass_of":
-                sub, _, sup = tokens
-                asrt = Assertion(
-                    assertion_id=f"asrt_{turn_id}",
-                    relation=Relation(sub, SUBCLASS_OF, sup),
-                    provenance=prov,
-                )
-                target_turn.proposed_assertions = [asrt]
-                target_turn.user_response = new_input
-                target_turn.confirmed = True
-                self.model.add_assertion(
-                    relation=asrt.relation,
-                    provenance=asrt.provenance,
-                    assertion_id=asrt.assertion_id,
-                )
-                self._symbol_turn_map.setdefault(sub, turn_id)
-                self._symbol_turn_map.setdefault(sup, turn_id)
-                applied_msg = f"Applied replacement class hierarchy: ({sub} subclass_of {sup})."
-            elif len(tokens) == 3 and tokens[1] == "disjoint_with":
-                c1, _, c2 = tokens
-                asrt = Assertion(
-                    assertion_id=f"asrt_{turn_id}",
-                    relation=Relation(c1, DISJOINT_WITH, c2),
-                    provenance=prov,
-                )
-                target_turn.proposed_assertions = [asrt]
-                target_turn.user_response = new_input
-                target_turn.confirmed = True
-                self.model.add_assertion(
-                    relation=asrt.relation,
-                    provenance=asrt.provenance,
-                    assertion_id=asrt.assertion_id,
-                )
-                self._symbol_turn_map.setdefault(c1, turn_id)
-                self._symbol_turn_map.setdefault(c2, turn_id)
-                applied_msg = f"Applied replacement disjointness: ({c1} disjoint_with {c2})."
-
+        if phase == ElicitationState.DECISION_QUESTION:
+            applied_msg = self._amend_decision_question(target_turn, new_input)
+        elif phase == ElicitationState.COMPETENCY_QUESTIONS:
+            applied_msg = self._amend_competency_question(target_turn, new_input)
+        elif phase == ElicitationState.ELICIT_CLASSES:
+            applied_msg = self._amend_class_assertion(target_turn, new_input, prov)
         elif phase == ElicitationState.ELICIT_RELATIONS:
-            tokens = new_input.strip().split()
-            rel_name = tokens[0]
-            new_asrts = []
-            for param in tokens[1:]:
-                if param.startswith("domain="):
-                    d_val = param.split("=", 1)[1]
-                    new_asrts.append(
-                        Assertion(
-                            assertion_id=f"asrt_{turn_id}_dom",
-                            relation=Relation(rel_name, DOMAIN, d_val),
-                            provenance=prov,
-                        )
-                    )
-                elif param.startswith("range="):
-                    r_val = param.split("=", 1)[1]
-                    new_asrts.append(
-                        Assertion(
-                            assertion_id=f"asrt_{turn_id}_rng",
-                            relation=Relation(rel_name, RANGE, r_val),
-                            provenance=prov,
-                        )
-                    )
-                elif param.lower() == "acyclic=true":
-                    new_asrts.append(
-                        Assertion(
-                            assertion_id=f"asrt_{turn_id}_acy",
-                            relation=Relation(rel_name, ACYCLIC, "true"),
-                            provenance=prov,
-                        )
-                    )
-            target_turn.proposed_assertions = new_asrts
+            applied_msg = self._amend_relation_assertion(target_turn, new_input, prov)
+        elif phase == ElicitationState.ELICIT_INSTANCES:
+            applied_msg = self._amend_instance_assertion(target_turn, new_input, prov)
+
+        self.pending_reconfirmations = list(invalidated)
+        base_msg = f"Amended {turn_id}: retracted {len(retracted)} assertions. {applied_msg}".strip()
+        if self.pending_reconfirmations:
+            next_t = self.pending_reconfirmations[0]
+            self.current_prompt = (
+                f"{base_msg} Re-confirmation required: confirm downstream turn "
+                f"'{next_t.turn_id}' ('{next_t.user_response}')? (y/n)"
+            )
+            return self.current_prompt
+        return base_msg
+
+    def _amend_decision_question(self, target_turn: ElicitedTurn, new_input: str) -> str:
+        self.scope_description = new_input.strip()
+        target_turn.user_response = new_input.strip()
+        target_turn.confirmed = True
+        return f"Updated scope to '{self.scope_description}'."
+
+    def _amend_competency_question(self, target_turn: ElicitedTurn, new_input: str) -> str:
+        clean = new_input.strip()
+        target_turn.user_response = clean
+        target_turn.confirmed = True
+        if clean and clean not in self.competency_queries:
+            self.competency_queries.append(clean)
+        return f"Updated competency question to '{clean}'."
+
+    def _amend_class_assertion(self, target_turn: ElicitedTurn, new_input: str, prov: Provenance) -> str:
+        tokens = new_input.strip().split()
+        if len(tokens) == 3 and tokens[1] == "subclass_of":
+            sub, _, sup = tokens
+            asrt = Assertion(
+                assertion_id=f"asrt_{target_turn.turn_id}",
+                relation=Relation(sub, SUBCLASS_OF, sup),
+                provenance=prov,
+            )
+            target_turn.proposed_assertions = [asrt]
             target_turn.user_response = new_input
             target_turn.confirmed = True
-            for a in new_asrts:
-                self.model.add_assertion(
-                    relation=a.relation,
-                    provenance=a.provenance,
-                    assertion_id=a.assertion_id,
-                )
-            self._symbol_turn_map.setdefault(rel_name, turn_id)
-            applied_msg = f"Applied replacement relation schema for '{rel_name}'."
+            self.model.add_assertion(
+                relation=asrt.relation,
+                provenance=asrt.provenance,
+                assertion_id=asrt.assertion_id,
+            )
+            self._symbol_turn_map.setdefault(sub, target_turn.turn_id)
+            self._symbol_turn_map.setdefault(sup, target_turn.turn_id)
+            return f"Applied replacement class hierarchy: ({sub} subclass_of {sup})."
+        elif len(tokens) == 3 and tokens[1] == "disjoint_with":
+            c1, _, c2 = tokens
+            asrt = Assertion(
+                assertion_id=f"asrt_{target_turn.turn_id}",
+                relation=Relation(c1, DISJOINT_WITH, c2),
+                provenance=prov,
+            )
+            target_turn.proposed_assertions = [asrt]
+            target_turn.user_response = new_input
+            target_turn.confirmed = True
+            self.model.add_assertion(
+                relation=asrt.relation,
+                provenance=asrt.provenance,
+                assertion_id=asrt.assertion_id,
+            )
+            self._symbol_turn_map.setdefault(c1, target_turn.turn_id)
+            self._symbol_turn_map.setdefault(c2, target_turn.turn_id)
+            return f"Applied replacement disjointness: ({c1} disjoint_with {c2})."
+        return f"Warning: Unrecognized class input '{new_input}'."
 
-        elif phase == ElicitationState.ELICIT_INSTANCES:
-            clean = new_input.strip()
-            attrs: dict[str, Any] = {}
-            core_line = clean
-            if "[" in clean and clean.endswith("]"):
-                b_idx = clean.find("[")
-                attr_str = clean[b_idx:]
-                core_line = clean[:b_idx].strip()
-                try:
-                    attrs = _parse_attributes(attr_str, 0)
-                except Exception:
-                    attrs = {}
-            tokens = core_line.split()
-            if len(tokens) == 3 and tokens[1] in (INSTANCE_OF, "instance_of"):
-                inst, _, cls_name = tokens
-                asrt = Assertion(
-                    assertion_id=f"asrt_{turn_id}",
-                    relation=Relation(inst, INSTANCE_OF, cls_name),
-                    provenance=prov,
-                    attributes=attrs,
+    def _amend_relation_assertion(self, target_turn: ElicitedTurn, new_input: str, prov: Provenance) -> str:
+        tokens = new_input.strip().split()
+        if not tokens:
+            return "Warning: Empty relation input."
+        rel_name = tokens[0]
+        new_asrts = []
+        for param in tokens[1:]:
+            if param.startswith("domain="):
+                d_val = param.split("=", 1)[1]
+                new_asrts.append(
+                    Assertion(
+                        assertion_id=f"asrt_{target_turn.turn_id}_dom",
+                        relation=Relation(rel_name, DOMAIN, d_val),
+                        provenance=prov,
+                    )
                 )
-                target_turn.proposed_assertions = [asrt]
-                target_turn.proposed_entities = {inst: attrs} if attrs else {}
-                target_turn.user_response = new_input
-                target_turn.confirmed = True
-                if attrs:
-                    self.model.add_entity(Entity(id=inst, attributes=dict(attrs)))
-                self.model.add_assertion(
-                    relation=asrt.relation,
-                    provenance=asrt.provenance,
-                    assertion_id=asrt.assertion_id,
-                    attributes=asrt.attributes,
+            elif param.startswith("range="):
+                r_val = param.split("=", 1)[1]
+                new_asrts.append(
+                    Assertion(
+                        assertion_id=f"asrt_{target_turn.turn_id}_rng",
+                        relation=Relation(rel_name, RANGE, r_val),
+                        provenance=prov,
+                    )
                 )
-                self._symbol_turn_map.setdefault(inst, turn_id)
-                applied_msg = f"Applied replacement instance assertion: ({inst} instance_of {cls_name})."
+            elif param.lower() == "acyclic=true":
+                new_asrts.append(
+                    Assertion(
+                        assertion_id=f"asrt_{target_turn.turn_id}_acy",
+                        relation=Relation(rel_name, ACYCLIC, "true"),
+                        provenance=prov,
+                    )
+                )
+        target_turn.proposed_assertions = new_asrts
+        target_turn.user_response = new_input
+        target_turn.confirmed = True
+        for a in new_asrts:
+            self.model.add_assertion(
+                relation=a.relation,
+                provenance=a.provenance,
+                assertion_id=a.assertion_id,
+            )
+        self._symbol_turn_map.setdefault(rel_name, target_turn.turn_id)
+        return f"Applied replacement relation schema for '{rel_name}'."
+
+    def _amend_instance_assertion(self, target_turn: ElicitedTurn, new_input: str, prov: Provenance) -> str:
+        clean = new_input.strip()
+        attrs: dict[str, Any] = {}
+        core_line = clean
+        if "[" in clean and clean.endswith("]"):
+            b_idx = clean.find("[")
+            attr_str = clean[b_idx:]
+            core_line = clean[:b_idx].strip()
+            try:
+                attrs = _parse_attributes(attr_str, 0)
+            except Exception:
+                attrs = {}
+        tokens = core_line.split()
+        if len(tokens) == 3 and tokens[1] in (INSTANCE_OF, "instance_of"):
+            inst, _, cls_name = tokens
+            asrt = Assertion(
+                assertion_id=f"asrt_{target_turn.turn_id}",
+                relation=Relation(inst, INSTANCE_OF, cls_name),
+                provenance=prov,
+                attributes=attrs,
+            )
+            target_turn.proposed_assertions = [asrt]
+            target_turn.proposed_entities = {inst: attrs} if attrs else {}
+            target_turn.user_response = new_input
+            target_turn.confirmed = True
+            if attrs:
+                self.model.add_entity(Entity(id=inst, attributes=dict(attrs)))
+            self.model.add_assertion(
+                relation=asrt.relation,
+                provenance=asrt.provenance,
+                assertion_id=asrt.assertion_id,
+                attributes=asrt.attributes,
+            )
+            self._symbol_turn_map.setdefault(inst, target_turn.turn_id)
+            return f"Applied replacement instance assertion: ({inst} instance_of {cls_name})."
+        elif len(tokens) == 3:
+            s, p, o = tokens
+            asrt = Assertion(
+                assertion_id=f"asrt_{target_turn.turn_id}",
+                relation=Relation(s, p, o),
+                provenance=prov,
+                attributes=attrs,
+            )
+            target_turn.proposed_assertions = [asrt]
+            target_turn.proposed_entities = {s: attrs} if attrs else {}
+            target_turn.user_response = new_input
+            target_turn.confirmed = True
+            self.model.add_assertion(
+                relation=asrt.relation,
+                provenance=asrt.provenance,
+                assertion_id=asrt.assertion_id,
+                attributes=asrt.attributes,
+            )
+            self._symbol_turn_map.setdefault(s, target_turn.turn_id)
+            return f"Applied replacement instance assertion: ({s} {p} {o})."
+        return f"Warning: Unrecognized instance input '{new_input}'."
 
         self.pending_reconfirmations = list(invalidated)
         base_msg = f"Amended {turn_id}: retracted {len(retracted)} assertions. {applied_msg}".strip()

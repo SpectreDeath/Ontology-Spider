@@ -1,0 +1,24 @@
+# Multi-attribute recommendation benchmark ontology
+dialog urn:ontology:multi_recommend
+
+# Classes
+assert agent subclass_of entity
+assert autonomous_agent subclass_of agent
+assert aerial_agent subclass_of autonomous_agent
+assert ground_agent subclass_of autonomous_agent
+assert heavy_drone subclass_of aerial_agent
+assert scout_drone subclass_of aerial_agent
+assert delivery_drone subclass_of heavy_drone
+
+# Instances with attributes
+assert d1 instance_of delivery_drone [payload_kg=10, max_range_km=50, status=active]
+assert d2 instance_of delivery_drone [payload_kg=5, max_range_km=50, status=active]
+assert d3 instance_of scout_drone [payload_kg=1, max_range_km=100, status=active]
+assert d4 instance_of heavy_drone [payload_kg=10, max_range_km=30, status=maintenance]
+assert g1 instance_of ground_agent [payload_kg=20, max_range_km=25, status=active]
+
+# Queries
+query recommend autonomous_agent [payload_kg=10, status=active]
+query recommend heavy_drone [payload_kg=10]
+query recommend aerial_agent [payload_kg=5, max_range_km=50]
+query recommend agent [status=active]

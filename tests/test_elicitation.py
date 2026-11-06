@@ -198,6 +198,7 @@ class TestElicitation(unittest.TestCase):
         manager = ElicitationManager()
         self.assertIn("Decision Question", manager.prompt())
         manager.handle_input("Testing Coverage")
+        manager.handle_input("query ancestors of initial_entity")
         manager.handle_input("done")
 
         # Invalid class format
@@ -242,6 +243,17 @@ class TestElicitation(unittest.TestCase):
         # Reject confirmation
         manager.handle_input("n")
         self.assertIn("discarded", manager.prompt().lower())
+
+        # Amend decision and competency questions
+        dec_turn_id = manager.turns[0].turn_id
+        res_dec = manager.amend_turn(dec_turn_id, "Updated Coverage Domain")
+        self.assertIn("Updated scope", res_dec)
+        self.assertEqual(manager.scope_description, "Updated Coverage Domain")
+
+        comp_turn_id = manager.turns[1].turn_id
+        res_comp = manager.amend_turn(comp_turn_id, "query ancestors of truck1")
+        self.assertIn("Updated competency question", res_comp)
+        self.assertIn("query ancestors of truck1", manager.competency_queries)
 
         # Finish
         final = manager.handle_input("done")

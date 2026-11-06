@@ -25,22 +25,64 @@ def check_json_roundtrip_identity(model: OntologyModel) -> bool:
 
 
 def check_dialog_roundtrip_identity(model: OntologyModel) -> bool:
-    """Invariant: to_dialog -> DialogModelSource re-parses to equal entities and assertions."""
+    """Invariant: to_dialog -> DialogModelSource re-parses to equal entities and assertions (exact lossless roundtrip)."""
     text = to_dialog(model)
     restored = DialogModelSource(text).load()
+    if model.uri != restored.uri:
+        return False
     if set(model.entities.keys()) != set(restored.entities.keys()):
         return False
+    for eid, ent in model.entities.items():
+        rent = restored.entities.get(eid)
+        if rent is None:
+            return False
+        if (ent.name or "") != (rent.name or ""):
+            return False
+        if dict(ent.attributes) != dict(rent.attributes):
+            return False
+        for k, v in ent.attributes.items():
+            rv = rent.attributes.get(k)
+            if type(v) is not type(rv) or v != rv:
+                return False
+
     if len(model.assertions) != len(restored.assertions):
         return False
-    for a in model.assertions.values():
-        matches = [
-            ra for ra in restored.assertions.values()
-            if ra.relation.subject == a.relation.subject
-            and ra.relation.predicate == a.relation.predicate
-            and ra.relation.object == a.relation.object
-        ]
-        if not matches:
+    for aid, a in model.assertions.items():
+        ra = restored.assertions.get(aid)
+        if ra is None:
+            matching = [
+                x for x in restored.assertions.values()
+                if x.relation.subject == a.relation.subject
+                and x.relation.predicate == a.relation.predicate
+                and x.relation.object == a.relation.object
+            ]
+            if not matching:
+                return False
+            ra = matching[0]
+
+        if (
+            ra.relation.subject != a.relation.subject
+            or ra.relation.predicate != a.relation.predicate
+            or ra.relation.object != a.relation.object
+        ):
             return False
+        if a.assertion_id and ra.assertion_id != a.assertion_id:
+            return False
+        if a.provenance.source and ra.provenance.source != a.provenance.source:
+            return False
+        if a.provenance.turn_id and ra.provenance.turn_id != a.provenance.turn_id:
+            return False
+        if a.provenance.timestamp and ra.provenance.timestamp != a.provenance.timestamp:
+            return False
+        if a.provenance.parent_turn_ids != ra.provenance.parent_turn_ids:
+            return False
+        if dict(a.attributes) != dict(ra.attributes):
+            return False
+        for k, v in a.attributes.items():
+            rv = ra.attributes.get(k)
+            if type(v) is not type(rv) or v != rv:
+                return False
+
     return True
 
 

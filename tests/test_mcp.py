@@ -13,30 +13,45 @@ class FakeStreamTransport(StdioTransport):
         self.out_stream = io.StringIO()
 
     def get_output_messages(self) -> list[dict]:
-        output = self.out_stream.getvalue().encode("utf-8")
+        output = self.out_stream.getvalue().strip()
+        if not output:
+            return []
         messages = []
-        pos = 0
-        while pos < len(output):
-            idx = output.find(b"Content-Length:", pos)
-            if idx == -1:
-                break
-            sep_idx = output.find(b"\r\n\r\n", idx)
-            if sep_idx == -1:
-                break
-            header = output[idx:sep_idx].decode("utf-8")
-            length = int(header.split(":", 1)[1].strip())
-            body_start = sep_idx + 4
-            body = output[body_start : body_start + length].decode("utf-8")
-            messages.append(json.loads(body))
-            pos = body_start + length
+        for line in output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("Content-Length:"):
+                continue
+            try:
+                messages.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
         return messages
 
 
 class TestMCPServer(unittest.TestCase):
-    def _run_sequence(self, messages: list[dict], read_only: bool = False, root_dir: Path | None = None) -> list[dict]:
-        raw_in = "".join(f"Content-Length: {len(json.dumps(m).encode('utf-8'))}\r\n\r\n{json.dumps(m)}" for m in messages)
+    def _run_sequence(
+        self,
+        messages: list[dict],
+        read_only: bool = False,
+        root_dir: Path | None = None,
+        max_sessions: int = 32,
+        max_assertions_per_session: int = 50_000,
+        backend: str | None = None,
+        preload_model_path: Path | None = None,
+    ) -> list[dict]:
+        raw_in = "\n".join(json.dumps(m) for m in messages) + "\n"
         transport = FakeStreamTransport(raw_in)
-        server = MCPServer(transport=transport, read_only=read_only, root_dir=root_dir)
+        server = MCPServer(
+            transport=transport,
+            read_only=read_only,
+            root_dir=root_dir,
+            max_sessions=max_sessions,
+            max_assertions_per_session=max_assertions_per_session,
+            backend=backend,
+            preload_model_path=preload_model_path,
+        )
         server.run()
         return transport.get_output_messages()
 
@@ -355,6 +370,86 @@ class TestMCPServer(unittest.TestCase):
         with patch("sys.stdin", io.StringIO("")), patch("sys.stdout", io.StringIO()):
             rc = mcp_main(["--read-only"])
             self.assertEqual(rc, 0)
+
+    def test_notifications_cancelled(self):
+        msgs = [
+            {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 42}},
+            {"jsonrpc": "2.0", "id": 42, "method": "ping", "params": {}},
+            {"jsonrpc": "2.0", "id": 43, "method": "ping", "params": {}},
+        ]
+        responses = self._run_sequence(msgs)
+        # Request 42 was cancelled, so only response 43 should be emitted
+        self.assertEqual(len(responses), 1)
+        self.assertEqual(responses[0]["id"], 43)
+
+    def test_session_and_assertion_caps(self):
+        # Test max_sessions cap
+        msgs_sessions = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s1"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s2"}}},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s3"}}},
+        ]
+        resp_sessions = self._run_sequence(msgs_sessions, max_sessions=2)
+        self.assertNotIn("error", resp_sessions[0])
+        self.assertNotIn("error", resp_sessions[1])
+        self.assertIn("error", resp_sessions[2])
+        self.assertIn("Session cap exceeded", resp_sessions[2]["error"]["message"])
+
+        # Test max_assertions_per_session cap
+        msgs_assertions = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_cap"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "a", "predicate": "subclass_of", "object": "b"}}},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "b", "predicate": "subclass_of", "object": "c"}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "c", "predicate": "subclass_of", "object": "d"}}},
+        ]
+        resp_assertions = self._run_sequence(msgs_assertions, max_assertions_per_session=2)
+        self.assertNotIn("error", resp_assertions[0])
+        self.assertNotIn("error", resp_assertions[1])
+        self.assertNotIn("error", resp_assertions[2])
+        self.assertIn("error", resp_assertions[3])
+        self.assertIn("Assertion cap exceeded", resp_assertions[3]["error"]["message"])
+
+    def test_preload_model_and_engine_info(self):
+        msgs = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "default", "query": "query ancestors of delivery_drone"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "engine_info", "arguments": {}}},
+        ]
+        responses = self._run_sequence(msgs, preload_model_path=Path("examples/tutorial.dialog"))
+        self.assertEqual(len(responses), 2)
+        self.assertNotIn("error", responses[0])
+        self.assertIn("aerial_vehicle", responses[0]["result"]["content"][0]["text"])
+        info = json.loads(responses[1]["result"]["content"][0]["text"])
+        self.assertEqual(info["max_sessions"], 32)
+        self.assertEqual(info["timeout_seconds"], 10)
+
+    def test_stdio_transport_framing(self):
+        # 1. NDJSON read/write
+        buf_out = io.StringIO()
+        t = StdioTransport(in_stream=io.StringIO('{"msg": "hi"}\n\n{"msg": "two"}\n'), out_stream=buf_out)
+        m1 = t.read_message()
+        self.assertEqual(m1, {"msg": "hi"})
+        m2 = t.read_message()
+        self.assertEqual(m2, {"msg": "two"})
+        m3 = t.read_message()
+        self.assertIsNone(m3)
+
+        t.write_message({"reply": "ok"})
+        self.assertEqual(buf_out.getvalue(), '{"reply": "ok"}\n')
+
+        # 2. Content-Length framing
+        payload_str = json.dumps({"msg": "framed"})
+        cl_text = f"Content-Length: {len(payload_str.encode('utf-8'))}\r\n\r\n{payload_str}"
+        t_cl = StdioTransport(in_stream=io.StringIO(cl_text))
+        m_cl = t_cl.read_message()
+        self.assertEqual(m_cl, {"msg": "framed"})
+
+        # 3. Invalid Content-Length
+        t_bad = StdioTransport(in_stream=io.StringIO("Content-Length: not_a_num\r\n\r\n{}"))
+        self.assertIsNone(t_bad.read_message())
+
+        # 4. Incomplete Content-Length payload
+        t_short = StdioTransport(in_stream=io.StringIO("Content-Length: 100\r\n\r\nshort"))
+        self.assertIsNone(t_short.read_message())
 
 
 if __name__ == "__main__":

@@ -17,14 +17,23 @@ from ontology_spider.model import (
 def prolog_safe_string(value: Any) -> str:
     """Escape and quote an atom or string safely for Prolog, escaping control characters."""
     val_str = str(value)
-    # Escape backslashes first, then single quotes, then control characters
-    escaped = val_str.replace("\\", "\\\\").replace("'", "\\'")
-    escaped = (
-        escaped.replace("\r", "\\r")
-        .replace("\n", "\\n")
-        .replace("\t", "\\t")
-    )
-    return f"'{escaped}'"
+    escaped: list[str] = []
+    for ch in val_str:
+        if ch == "\\":
+            escaped.append("\\\\")
+        elif ch == "'":
+            escaped.append("\\'")
+        elif ch == "\r":
+            escaped.append("\\r")
+        elif ch == "\n":
+            escaped.append("\\n")
+        elif ch == "\t":
+            escaped.append("\\t")
+        elif ord(ch) < 32 or ord(ch) == 127:
+            escaped.append(f"\\x{ord(ch):02x}")
+        else:
+            escaped.append(ch)
+    return f"'{''.join(escaped)}'"
 
 
 def unescape_prolog_atom(atom_str: str) -> str:
@@ -55,6 +64,17 @@ def unescape_prolog_atom(atom_str: str) -> str:
             elif nxt == "t":
                 res.append("\t")
                 i += 2
+            elif nxt == "x" and i + 3 < n:
+                hex_digits = atom_str[i + 2 : i + 4]
+                try:
+                    code = int(hex_digits, 16)
+                    res.append(chr(code))
+                    i += 4
+                    if i < n and atom_str[i] == "\\":
+                        i += 1
+                except ValueError:
+                    res.append(atom_str[i : i + 2])
+                    i += 2
             else:
                 res.append(nxt)
                 i += 2

@@ -1,0 +1,14 @@
+{
+  "scenario": "violations",
+  "model": "examples/violations.dialog",
+  "expected_violations": [
+    "domain_violation",
+    "range_violation",
+    "disjointness_violation",
+    "cycle_violation"
+  ],
+  "queries": [
+    "query what is lion?",
+    "query what is flying_car?"
+  ]
+}

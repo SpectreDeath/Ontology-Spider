@@ -28,25 +28,54 @@ class MCPServer:
         transport: Optional[StdioTransport] = None,
         read_only: bool = False,
         root_dir: Optional[Path] = None,
+        max_sessions: int = 32,
+        max_assertions_per_session: int = 50_000,
+        timeout_seconds: int = 10,
+        max_inferences: int = 1_000_000,
+        backend: Optional[str] = None,
+        preload_model_path: Optional[Path] = None,
     ) -> None:
         self.transport = transport or StdioTransport()
         self.read_only = read_only
         self.root_dir = (root_dir or Path.cwd()).resolve()
+        self.max_sessions = max_sessions
+        self.max_assertions_per_session = max_assertions_per_session
+        self.timeout_seconds = timeout_seconds
+        self.max_inferences = max_inferences
+        self.backend = backend
         self.engine = Engine()
         self.sessions = self.engine.session_manager
         self.dialogue_managers: dict[str, TraversalDialogueManager] = {}
         self.validator = OntologyValidator()
+        self._cancelled_requests: set[Any] = set()
 
         # Method registry
         self._handlers: dict[str, Callable[[Any], Any]] = {
             "initialize": self._handle_initialize,
             "notifications/initialized": self._handle_noop,
+            "notifications/cancelled": self._handle_cancelled,
             "ping": self._handle_ping,
             "tools/list": self._handle_tools_list,
             "tools/call": self._handle_tools_call,
             "resources/list": self._handle_resources_list,
             "resources/read": self._handle_resources_read,
         }
+
+        if preload_model_path:
+            resolved = self._resolve_safe_path(str(preload_model_path))
+            loaded = DialogModelSource(resolved).load()
+            reasoner = self._get_reasoner()
+            session = self.sessions.open_session("default", loaded, reasoner=reasoner)
+            self.dialogue_managers["default"] = TraversalDialogueManager(session.model, reasoner=reasoner)
+
+    def _get_reasoner(self) -> Optional[Any]:
+        if self.backend == "python":
+            from ontology_spider.reasoning.python_backend import PythonReasoner
+            return PythonReasoner()
+        elif self.backend == "prolog":
+            from ontology_spider.prolog.reasoner import PrologReasoner
+            return PrologReasoner()
+        return None
 
     def _resolve_safe_path(self, path_str: str) -> Path:
         """Resolve path and verify it stays within root_dir sandbox."""
@@ -74,6 +103,10 @@ class MCPServer:
             if not method:
                 continue
 
+            if msg_id is not None and msg_id in self._cancelled_requests:
+                self._cancelled_requests.discard(msg_id)
+                continue
+
             handler = self._handlers.get(method)
             if not handler:
                 if msg_id is not None:
@@ -86,6 +119,9 @@ class MCPServer:
 
             try:
                 result = handler(params)
+                if msg_id is not None and msg_id in self._cancelled_requests:
+                    self._cancelled_requests.discard(msg_id)
+                    continue
                 if msg_id is not None:
                     self.transport.write_message({
                         "jsonrpc": "2.0",
@@ -93,6 +129,9 @@ class MCPServer:
                         "result": result,
                     })
             except Exception as e:
+                if msg_id is not None and msg_id in self._cancelled_requests:
+                    self._cancelled_requests.discard(msg_id)
+                    continue
                 if msg_id is not None:
                     code = -32000
                     if isinstance(e, PermissionError):
@@ -117,6 +156,12 @@ class MCPServer:
         }
 
     def _handle_noop(self, params: dict[str, Any]) -> None:
+        return None
+
+    def _handle_cancelled(self, params: dict[str, Any]) -> None:
+        req_id = params.get("requestId")
+        if req_id is not None:
+            self._cancelled_requests.add(req_id)
         return None
 
     def _handle_ping(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -316,16 +361,21 @@ class MCPServer:
             raise PermissionError(f"Server is running in read-only mode. Tool '{name}' is forbidden.")
 
         if name == "session_open":
+            if len(self.sessions.list_sessions()) >= self.max_sessions:
+                raise ValueError(f"Session cap exceeded: maximum {self.max_sessions} active sessions allowed.")
             sid = args.get("session_id") or f"sess_{len(self.sessions.list_sessions()) + 1}"
             model_path = args.get("model_path")
+            reasoner = self._get_reasoner()
             if model_path:
                 resolved = self._resolve_safe_path(model_path)
                 model = DialogModelSource(resolved).load()
-                session = self.sessions.open_session(sid, model)
+                if len(model.assertions) > self.max_assertions_per_session:
+                    raise ValueError(f"Assertion cap exceeded: loaded model has {len(model.assertions)} assertions (cap: {self.max_assertions_per_session}).")
+                session = self.sessions.open_session(sid, model, reasoner=reasoner)
             else:
                 uri = args.get("uri") or f"urn:mcp:{sid}"
-                session = self.sessions.open_session(sid, OntologyModel(uri=uri))
-            self.dialogue_managers[sid] = TraversalDialogueManager(session.model)
+                session = self.sessions.open_session(sid, OntologyModel(uri=uri), reasoner=reasoner)
+            self.dialogue_managers[sid] = TraversalDialogueManager(session.model, reasoner=reasoner)
             return {"content": [{"type": "text", "text": f"Session '{sid}' opened."}], "sessionId": sid}
 
         elif name == "session_close":
@@ -344,6 +394,10 @@ class MCPServer:
                 "backends": self.engine.available_backends,
                 "read_only": self.read_only,
                 "root_dir": str(self.root_dir),
+                "max_sessions": self.max_sessions,
+                "max_assertions_per_session": self.max_assertions_per_session,
+                "timeout_seconds": self.timeout_seconds,
+                "max_inferences": self.max_inferences,
             }
             return {"content": [{"type": "text", "text": json.dumps(info, indent=2)}]}
 
@@ -354,11 +408,16 @@ class MCPServer:
         session = self.sessions.get_session(sid)
         if not session:
             raise ValueError(f"Session not found: {sid}")
-        mgr = self.dialogue_managers.setdefault(sid, TraversalDialogueManager(session.model))
+        mgr = self.dialogue_managers.setdefault(sid, TraversalDialogueManager(session.model, reasoner=session.reasoner))
 
         if name == "model_load":
             resolved = self._resolve_safe_path(args["path"])
             loaded = DialogModelSource(resolved).load()
+            if len(session.model.assertions) + len(loaded.assertions) > self.max_assertions_per_session:
+                raise ValueError(
+                    f"Assertion cap exceeded: session has {len(session.model.assertions)} assertions, "
+                    f"loading {len(loaded.assertions)} would exceed cap of {self.max_assertions_per_session}."
+                )
             for ent in loaded.entities.values():
                 session.model.upsert_entity(ent.id, **dict(ent.attributes))
             for asrt in loaded.assertions.values():
@@ -366,6 +425,8 @@ class MCPServer:
             return {"content": [{"type": "text", "text": f"Loaded model from {args['path']} into session '{sid}'."}]}
 
         elif name == "assert_triple":
+            if len(session.model.assertions) >= self.max_assertions_per_session:
+                raise ValueError(f"Assertion cap exceeded: maximum {self.max_assertions_per_session} assertions allowed per session.")
             asrt = session.assert_triple(
                 args["subject"],
                 args["predicate"],
@@ -384,7 +445,11 @@ class MCPServer:
             return {"content": [{"type": "text", "text": f"Retracted assertion {args['assertion_id']}"}]}
 
         elif name == "run_dialog":
+            if len(session.model.assertions) >= self.max_assertions_per_session:
+                raise ValueError(f"Assertion cap exceeded: maximum {self.max_assertions_per_session} assertions allowed per session.")
             res = session.run_dialog(args["dialog_text"])
+            if len(session.model.assertions) > self.max_assertions_per_session:
+                raise ValueError(f"Assertion cap exceeded: maximum {self.max_assertions_per_session} assertions allowed per session.")
             return {"content": [{"type": "text", "text": res.summary}]}
 
         elif name == "query":
