@@ -34,22 +34,18 @@ jobs:
       shell: pwsh
       run: |
         $installed = $false
-        for ($i = 1; $i -le 3; $i++) {
-          try {
-            Write-Host "Attempt $i: Installing SWI-Prolog via Chocolatey..."
-            choco install swi-prolog -y --no-progress
-            if ($LASTEXITCODE -eq 0 -and (Test-Path "C:\Program Files\swipl\bin\swipl.exe")) {
-              $installed = $true
-              break
-            }
-          } catch {
-            Write-Warning "Attempt $i failed: $_"
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+          Write-Host "Attempt ${attempt}: Installing SWI-Prolog via Chocolatey..."
+          choco install swi-prolog -y --no-progress
+          if ($LASTEXITCODE -eq 0 -or (Test-Path "C:\Program Files\swipl\bin\swipl.exe")) {
+            $installed = $true
+            break
           }
-          Start-Sleep -Seconds ($i * 5)
+          Start-Sleep -Seconds ($attempt * 5)
         }
         if (-not $installed) {
           Write-Host "Chocolatey failed or timed out. Falling back to winget..."
-          winget install --id SWI-Prolog.SWI-Prolog -e --silent --accept-source-agreements --accept-package-agreements || true
+          winget install --id SWI-Prolog.SWI-Prolog -e --silent --accept-source-agreements --accept-package-agreements
         }
         echo "C:\Program Files\swipl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
