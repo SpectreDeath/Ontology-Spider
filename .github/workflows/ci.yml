@@ -33,19 +33,18 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        $installed = $false
-        for ($attempt = 1; $attempt -le 3; $attempt++) {
-          Write-Host "Attempt ${attempt}: Installing SWI-Prolog via Chocolatey..."
-          choco install swi-prolog -y --no-progress
-          if ($LASTEXITCODE -eq 0 -or (Test-Path "C:\Program Files\swipl\bin\swipl.exe")) {
-            $installed = $true
-            break
-          }
-          Start-Sleep -Seconds ($attempt * 5)
+        $swiplExe = "C:\Program Files\swipl\bin\swipl.exe"
+        if (-not (Test-Path $swiplExe)) {
+          Write-Host "Downloading SWI-Prolog installer from GitHub Releases..."
+          $installerUrl = "https://github.com/SWI-Prolog/swipl-devel/releases/download/V10.1.20/swipl-10.1.20-1.x64.exe"
+          $installerPath = "$env:TEMP\swipl-installer.exe"
+          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+          Write-Host "Running silent installer..."
+          Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait
         }
-        if (-not $installed) {
-          Write-Host "Chocolatey failed or timed out. Falling back to winget..."
-          winget install --id SWI-Prolog.SWI-Prolog -e --silent --accept-source-agreements --accept-package-agreements
+        if (-not (Test-Path $swiplExe)) {
+          Write-Host "Direct installer not found; falling back to Chocolatey..."
+          choco install swi-prolog -y --no-progress || true
         }
         echo "C:\Program Files\swipl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
