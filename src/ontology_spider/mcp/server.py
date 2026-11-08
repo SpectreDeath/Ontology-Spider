@@ -30,7 +30,7 @@ class MCPServer:
         root_dir: Optional[Path] = None,
         max_sessions: int = 32,
         max_assertions_per_session: int = 50_000,
-        timeout_seconds: int = 10,
+        timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
         backend: Optional[str] = None,
         preload_model_path: Optional[Path] = None,
@@ -40,7 +40,7 @@ class MCPServer:
         self.root_dir = (root_dir or Path.cwd()).resolve()
         self.max_sessions = max_sessions
         self.max_assertions_per_session = max_assertions_per_session
-        self.timeout_seconds = timeout_seconds
+        self.timeout_seconds = float(timeout_seconds)
         self.max_inferences = max_inferences
         self.backend = backend
         self.engine = Engine()
@@ -72,12 +72,7 @@ class MCPServer:
                 timeout_seconds=self.timeout_seconds,
                 max_inferences=self.max_inferences,
             )
-            self.dialogue_managers["default"] = TraversalDialogueManager(
-                session.model,
-                reasoner=reasoner,
-                timeout_seconds=self.timeout_seconds,
-                max_inferences=self.max_inferences,
-            )
+            self.dialogue_managers["default"] = session.traversal
 
     def _get_reasoner(self) -> Optional[Any]:
         if self.backend == "python":
@@ -398,12 +393,7 @@ class MCPServer:
                     timeout_seconds=self.timeout_seconds,
                     max_inferences=self.max_inferences,
                 )
-            self.dialogue_managers[sid] = TraversalDialogueManager(
-                session.model,
-                reasoner=reasoner,
-                timeout_seconds=self.timeout_seconds,
-                max_inferences=self.max_inferences,
-            )
+            self.dialogue_managers[sid] = session.traversal
             return {"content": [{"type": "text", "text": f"Session '{sid}' opened."}], "sessionId": sid}
 
         elif name == "session_close":
@@ -438,15 +428,7 @@ class MCPServer:
         session = self.sessions.get_session(sid)
         if not session:
             raise ValueError(f"Session not found: {sid}")
-        mgr = self.dialogue_managers.setdefault(
-            sid,
-            TraversalDialogueManager(
-                session.model,
-                reasoner=session.reasoner,
-                timeout_seconds=self.timeout_seconds,
-                max_inferences=self.max_inferences,
-            ),
-        )
+        mgr = self.dialogue_managers.setdefault(sid, session.traversal)
 
         if name == "model_load":
             resolved = self._resolve_safe_path(args["path"])

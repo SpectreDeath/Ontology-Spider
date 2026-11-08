@@ -28,8 +28,8 @@ from ontology_spider.api import load_model
 # From raw .dialog text
 dialog_code = """
 dialog urn:example:drones
-quadcopter subclass_of drone
-delivery_drone subclass_of quadcopter
+assert quadcopter subclass_of drone
+assert delivery_drone subclass_of quadcopter
 """
 model = load_model(dialog_code)
 print(f"Loaded {len(model.assertions)} assertions from {model.uri}")
@@ -55,8 +55,8 @@ Executes a single `.dialog` query against the specified model, returning structu
 ### Returns
 - `QueryResult`:
   - `.statement_type`: `"query"` or `"explain"`
-  - `.summary`: Human-readable summary string (e.g. `"Ancestors of delivery_drone: quadcopter, drone"`)
-  - `.answers`: List of dictionary answers containing `value`, `rules_fired`, `path`, and `fact_ids`
+  - `.summary`: Human-readable summary string (e.g. `"Query ancestors: quadcopter, drone"`)
+  - `.answers`: List of dictionary answers containing `value`, `rules_fired`, `path`, `fact_ids`, and `provenance`
   - `.explanation`: Detailed audit trace with rules, path, and base assertions
   - `.to_dict()`: JSON-serializable dictionary representation
 
@@ -66,13 +66,13 @@ from ontology_spider.api import load_model, run_query
 
 model = load_model("""
 dialog urn:example:drones
-quadcopter subclass_of drone
-delivery_drone subclass_of quadcopter
+assert quadcopter subclass_of drone
+assert delivery_drone subclass_of quadcopter
 """)
 
 result = run_query(model, "query ancestors of delivery_drone")
 print(result.summary)
-# Output: Ancestors of delivery_drone: quadcopter, drone
+# Output: Query ancestors: quadcopter, drone
 for ans in result.answers:
     print(f"Answer: {ans['value']} via {ans['rules_fired']}")
 ```
@@ -89,7 +89,7 @@ Evaluates structural integrity, domain/range constraints, class disjointness, an
 
 ### Returns
 A list of violation dictionaries with keys:
-- `check_type`: Rule violated (e.g. `"cycle_detected"`, `"domain_violation"`, `"disjoint_inheritance"`)
+- `check_type`: Rule violated (e.g. `"cycle_violation"`, `"domain_violation"`, `"range_violation"`, `"disjointness_violation"`, `"assumption_violation"`)
 - `message`: Descriptive diagnostic explanation
 - `offending_assertion_ids`: List of assertion IDs responsible for the violation
 - `details`: Granular metadata (entities, classes, relations involved)
@@ -100,8 +100,8 @@ from ontology_spider.api import load_model, validate_model
 
 model = load_model("""
 dialog urn:example:cycles
-drone subclass_of aircraft
-aircraft subclass_of drone
+assert drone subclass_of aircraft
+assert aircraft subclass_of drone
 """)
 
 violations = validate_model(model)
@@ -129,7 +129,7 @@ Serializes an `OntologyModel` into a target serialization format.
 ```python
 from ontology_spider.api import export_model, load_model
 
-model = load_model("quadcopter subclass_of drone")
+model = load_model("assert quadcopter subclass_of drone")
 json_str = export_model(model, format="json")
 dialog_str = export_model(model, format="dialog")
 dot_str = export_model(model, format="dot")

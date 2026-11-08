@@ -178,11 +178,11 @@ Ontology-Spider connects directly to Brain Harness through the `ModelSource` sea
 Ontology-Spider/
 ├── src/ontology_spider/        # Core engine package
 │   ├── model.py                # OntologyModel, Entity, Relation, Assertion, Provenance
-│   ├── dialog.py               # DialogParser, AST statements, and serializer
+│   ├── dialog.py               # parse_dialog, AST statements, and serializer
 │   ├── dialog_runner.py        # DialogSession, query execution, and proof traces
 │   ├── engine.py               # Engine facade, QueryResult, and SessionManager
 │   ├── elicitation.py          # Guided elicitation state machine & amendments
-│   ├── traversal.py            # DialogueFrame stack & conversational focus
+│   ├── traversal.py            # TraversalFrame stack & conversational focus
 │   ├── validation.py           # OntologyValidator & schema constraints
 │   ├── export.py               # Multi-format serializers (JSON, Dialog, DOT, HTML)
 │   ├── seam.py                 # Pluggable ModelSource abstraction

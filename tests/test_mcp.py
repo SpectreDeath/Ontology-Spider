@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ontology_spider.mcp.server import MCPServer
 from ontology_spider.mcp.transport import StdioTransport
+from ontology_spider.prolog.reasoner import PrologReasoner
 
 
 class FakeStreamTransport(StdioTransport):
@@ -513,6 +514,37 @@ class TestMCPServer(unittest.TestCase):
         self.assertEqual(args.max_assertions, 500)
         self.assertEqual(args.backend, "python")
         self.assertTrue(args.read_only)
+
+    @unittest.skipUnless(PrologReasoner().is_available, "swipl not installed")
+    def test_mcp_prolog_backend_query_caps(self):
+        root = Path(__file__).resolve().parent.parent
+        # 1. Inference cap exceeded with max_inferences=2 on query
+        msgs_cap = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_prolog_cap", "model_path": "examples/drones.dialog"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_prolog_cap", "query": "query ancestors of delivery_drone"}}},
+        ]
+        responses_cap = self._run_sequence(msgs_cap, backend="prolog", max_inferences=2, root_dir=root)
+        self.assertIn("error", responses_cap[1])
+        self.assertIn("Prolog query exceeded inference cap of 2 steps", responses_cap[1]["error"]["message"])
+
+        # 2. Inference cap exceeded on run_dialog with max_inferences=2
+        msgs_dialog_cap = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_prolog_dcap", "model_path": "examples/drones.dialog"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "run_dialog", "arguments": {"session_id": "s_prolog_dcap", "dialog_text": "query ancestors of delivery_drone"}}},
+        ]
+        responses_dialog_cap = self._run_sequence(msgs_dialog_cap, backend="prolog", max_inferences=2, root_dir=root)
+        self.assertIn("error", responses_dialog_cap[1])
+        self.assertIn("Prolog query exceeded inference cap of 2 steps", responses_dialog_cap[1]["error"]["message"])
+
+        # 3. Query succeeds with normal max_inferences=100_000
+        msgs_ok = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_prolog_ok", "model_path": "examples/drones.dialog"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_prolog_ok", "query": "query ancestors of delivery_drone"}}},
+        ]
+        responses_ok = self._run_sequence(msgs_ok, backend="prolog", max_inferences=100_000, root_dir=root)
+        self.assertNotIn("error", responses_ok[1])
+        self.assertIn("result", responses_ok[1])
+        self.assertIn("aerial_vehicle", responses_ok[1]["result"]["content"][0]["text"])
 
 
 if __name__ == "__main__":

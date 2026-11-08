@@ -23,7 +23,7 @@ All production source code lives under `src/ontology_spider/` with zero third-pa
   - `engine.py` — Core facade (`Engine`, `Session`, `SessionManager`, `QueryResult`) orchestrating session state, reasoner routing, and one-shot queries.
   - `dialog_runner.py` — `DialogSession` executing sequential `.dialog` scripts, managing assertion history, degraded fallback, and query explanations.
   - `traversal.py` — `TraversalDialogueManager` and `TraversalFrame` maintaining conversational focus, active constraint stacks, and interactive graph exploration.
-  - `elicitation.py` — `ElicitationDialogueManager` guiding interactive, step-by-step schema authoring with competency queries and mixed-initiative corrections.
+  - `elicitation.py` — `ElicitationManager` guiding interactive, step-by-step schema authoring with competency queries and mixed-initiative corrections.
   - `validation.py` — `OntologyValidator` verifying domain/range constraints, acyclicity, class disjointness, and finding orphan instances.
   - `export.py` — Serialization utilities exporting models to JSON, `.dialog` scripts, Graphviz DOT graphs, and standalone interactive HTML visualizers.
 - **Interfaces & Protocols**:
@@ -114,8 +114,8 @@ During the 2026-11-08 architecture audit, the following findings were dispositio
 
 1. **Reasoner Sharing (5.1)**:
    - `Session.__init__` previously initialized separate reasoners for the session and `TraversalDialogueManager`. This was refactored: `TraversalDialogueManager` now explicitly receives `session.reasoner` and shares the same cache and persistent worker.
-2. **Unread Reasoner Attributes (5.2)**:
-   - `Session.python_reasoner` was retained as a fallback instance, and `Session.traversal` was wired directly to the session's active reasoner and query timeout parameters.
+2. **Unread Reasoner Attributes & Traversal Wiring (5.2)**:
+   - `Session.python_reasoner` was eliminated as an unread attribute. `Session.traversal` is wired directly to the session's active reasoner and query timeout parameters, and is reused directly by `MCPServer` (`mcp/server.py:75, 401, 441`) to eliminate duplicate session and dialogue-manager allocations.
 3. **Backend Availability Caching (5.3)**:
    - `Engine.active_backend_name` and `available_backends` now cache the Prolog availability probe on first access per `Engine` instance rather than constructing fresh reasoners repeatedly.
 4. **One-Shot API Construction (5.4)**:

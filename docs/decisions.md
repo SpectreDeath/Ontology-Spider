@@ -97,9 +97,13 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 
 ### 7.5 MCP Mutation & Sandboxing Policy
 - **Status**: **Settled Decision** (ratified 2026-11-08 per Consolidated follow-through plan Track 0.1).
+- **Exact Provenance**:
+  - **Session / Channel**: Local Antigravity IDE session `a4389347-bf24-4794-85ec-998c4fb91def`, `ask_question` interactive multiple-choice widget (recorded in `.system_generated/logs/transcript.jsonl` steps `691`–`692`).
+  - **Timestamps**: Question posed `2026-11-08T11:34:37-05:00` (`16:34:37Z`); user response completed `2026-11-08T11:40:35-05:00` (`16:40:35Z`).
+  - **Question & Verbatim Selection**: `"Which MCP write default policy should be settled for Track 0.1?"` $\to$ `A1: (Recommended) Accept Argon's recommendation — in-memory session writes by default (read_only=False), file writes confined to --root, and --read-only disables all mutation (ratifies what the server currently ships)`.
 - **Settled Policy**:
   - By default, allow in-memory session mutations (`assert_triple`, `declare_entity`, `retract`, `run_dialog`, `focus`, `constrain`) over stdio MCP (`read_only=False`).
-  - Strictly disable all mutation tools when launched with `--read-only` (returning error code `-32005`).
+  - Strictly disable all mutation tools when launched with `--read-only` (returning error code `-32001`).
   - Confine all file system reads and writes (`model_load`, `export`) to `--root` directory via `Path.resolve().relative_to(root_dir)`.
   - Enforce bounds on max active sessions (32) and max assertions per session (50,000).
 - **Rationale**:
@@ -110,7 +114,8 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Progression**:
   - `881a22a`: 78% statement coverage (3,069 statements, 665 missed; `python_backend.py` at 29%).
   - `0daeca5`: 91% statement coverage (3,074 statements, 274 missed across 89 unit tests; `python_backend.py` at 98%).
-  - 2026-11-08 Track 4 HEAD: 91% statement coverage (3,563 statements, 322 missed across 99 unit tests).
+  - `7970a12` (Track 4 HEAD): 91% statement coverage (3,563 statements, 322 missed across 99 unit tests).
+  - 2026-11-08 (Track 3 & 5 Corrections HEAD): 91% statement coverage (3,566 statements, 318 missed on Windows, 322 missed on Linux across 101 unit tests; `prolog/reasoner.py:95-101` Windows candidate fallbacks unhit on Linux).
 - **Rationale**:
   - A strict 90% coverage bar ensures that newly added features (such as MCP transports, synthetic generators, elicitation amendments, and multi-attribute recommendations) do not create unexercised code paths or regressions.
 
@@ -136,7 +141,7 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Date**: 2026-11-08
 - **Dispositions**:
   - **5.1 Reasoner Sharing in TraversalDialogueManager**: `Session.__init__` now explicitly forwards `reasoner=self.reasoner` and timeout/inference parameters into `TraversalDialogueManager`, eliminating redundant `PrologReasoner` construction and facts cache duplication.
-  - **5.2 Session Reasoner & Traversal Wiring**: `Session.traversal` is unified with the active session reasoner and deadline parameters.
+  - **5.2 Session Reasoner & Traversal Wiring**: Eliminated unread `Session.python_reasoner`. Wired `Session.traversal` directly into `MCPServer` (`mcp/server.py:75, 401, 441`) to reuse the session's active traversal manager and avoid duplicate allocations.
   - **5.3 Engine Backend Availability Caching**: `Engine` caches the Prolog probe once per instance (`_prolog_available`) rather than instantiating reasoners on every property access.
   - **5.4 Functional API Construction Pattern**: Confirmed that `api.run_query` and `Engine.query` retain one-shot construction as designed for stateless functional calls, while stateful workflows use `SessionManager` or `MCPServer`.
   - **5.5 State Machine File Layout**: Verified that `mcp/server.py` and `elicitation.py` remain single cohesive units with clear sub-dispatchers, maintaining 100% test pass rate without artificial module fracturing.

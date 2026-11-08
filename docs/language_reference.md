@@ -83,7 +83,7 @@ explain query ancestors of car
 
 ## 4. Command Line Interface (CLI)
 
-The `dialog` CLI provides five subcommands:
+The `dialog` CLI provides six subcommands:
 
 ```bash
 # 1. Run a .dialog script in batch mode
@@ -100,6 +100,9 @@ dialog elicit -o new_ontology.dialog
 
 # 5. Interactive traversal REPL with frame stack
 dialog repl --file ontology.dialog
+
+# 6. Run the stdio MCP server
+dialog mcp --root .
 ```
 Inside the interactive REPL:
 - `where am I` / `where am i?`: Inspect current DARPA Communicator frame stack position.

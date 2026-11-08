@@ -60,10 +60,10 @@ The harness includes 5 declarative scenario files in `src/ontology_spider/harnes
 
 ## 4. Property-Based Testing
 
-Defined in `src/ontology_spider/harness/properties.py` using `hypothesis`:
+Defined in `src/ontology_spider/harness/properties.py`:
 - **Monotonicity**: Adding true assertions never invalidates existing derived facts.
 - **Round-Trip Serialization**: Parsing `.dialog` $\to$ `OntologyModel` $\to$ `.dialog` preserves identical entity, relation, and assertion graphs.
-- **Acyclicity Verification**: Validated DAGs never contain cycles; introduced cyclic edges always trigger `cycle_detected` violations.
+- **Acyclicity Verification**: Validated DAGs never contain cycles; introduced cyclic edges always trigger `cycle_violation` violations.
 
 ---
 

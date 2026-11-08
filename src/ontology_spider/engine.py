@@ -98,7 +98,6 @@ class Session:
             prolog = PrologReasoner()
             self.reasoner = prolog if prolog.is_available else PythonReasoner()
 
-        self.python_reasoner = PythonReasoner()
         self.traversal = TraversalDialogueManager(
             model=self.model,
             reasoner=self.reasoner,

@@ -23,14 +23,14 @@ python -m ontology_spider mcp --root . --backend python --timeout 5.0 --max-infe
 
 - **Read-Only Gate (`--read-only`)**:
   - Default: `read_only=False`. Allows in-memory session mutations (`assert_triple`, `declare_entity`, `retract`, `run_dialog`, `focus`, `constrain`).
-  - Opt-In: `--read-only`. Disallows all 6 mutating tools, returning error code `-32005` (`PermissionError: Server is running in read-only mode`).
+  - Opt-In: `--read-only`. Disallows all 6 mutating tools, returning error code `-32001` (`PermissionError: Server is running in read-only mode`).
 - **Filesystem Sandbox (`--root`)**:
   - All file load operations (`model_load`, `session_open` with `model_path`) and exports are strictly confined within the `--root` directory via `Path.resolve().relative_to(root_dir)`. Any traversal attempt outside root raises `PermissionError`.
 - **Operational Caps**:
   - `max_sessions`: Maximum concurrent in-memory sessions (default: 32).
   - `max_assertions_per_session`: Maximum assertions per session (default: 50,000).
-  - `timeout_seconds`: Per-query execution deadline in seconds (default: 10.0).
-  - `max_inferences`: Per-query inference step budget (default: 1,000,000).
+  - `timeout_seconds`: Per-query execution deadline in seconds (default: 10.0). Configurable via `--timeout <float>` flag on CLI and server init. Tested on 2026-11-08 with a synthetic linear chain ($N=10,000$, 10,000 assertions): running `query ancestors of node_0` under the Python backend with `--timeout 3.0` terminated deterministically at `3.043s` with `QueryTimeoutError`, while succeeding in `4.467s` under the default `--timeout 10.0` returning all 10,000 ancestors.
+  - `max_inferences`: Per-query inference step budget (default: 1,000,000). Enforced via `--max-inferences <int>` (tested with `max_inferences=2` raising `QueryInferenceLimitError`).
 - **Transport**:
   - Stdio JSON-RPC 2.0 with NDJSON and Content-Length framing support.
   - Supports non-blocking client request cancellation via `notifications/cancelled` (`{"requestId": ...}`).

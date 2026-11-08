@@ -6,7 +6,7 @@ Execute commands via:
 ```bash
 python -m ontology_spider <subcommand> [flags]
 # Or using the console script entrypoint:
-ontology-spider <subcommand> [flags]
+dialog <subcommand> [flags]
 ```
 
 ---
@@ -41,12 +41,14 @@ python -m ontology_spider repl [--file <path>]
 - `--file`, `-f`: Optional path to an initial `.dialog` or `.json` model to preload into the REPL session.
 
 ### Commands inside REPL
+- `where am I` (or `where am i?`): Display the current traversal frame, focal entity, and active constraints.
 - `focus <Entity>`: Move traversal focus to the designated entity.
-- `constrain <key>=<val>`: Push an attribute constraint onto the current frame.
-- `pop`: Pop the active constraint frame back to the parent context.
-- `why_not <Entity>`: Inspect why a candidate entity failed the current active constraints.
-- `status`: Display the current traversal frame, focal entity, and active constraints.
-- `quit` / `exit`: Exit the REPL session.
+- `constrain <key>=<val>`: Push or update an attribute constraint onto the current frame.
+- `explain`: Print an explanation of the current frame context and constraints.
+- `validate`: Validate the active model and report any integrity violations.
+- `export <fmt>`: Export the current model to `json`, `dialog`, `dot`, or `html`.
+- `quit` / `exit` / `:q`: Exit the REPL session.
+- Any valid `.dialog` statement: `assert ...`, `query ...`, etc.
 
 ---
 
@@ -79,7 +81,7 @@ python -m ontology_spider export <file> [--format <fmt>] [--output <path>]
 
 ### Options
 - `file` (positional, required): Path to the source model.
-- `--format`, `-f`: Target output format. Choices: `json`, `dialog`, `dot`, `html`. (Default: `json`).
+- `--format`: Target output format. Choices: `json`, `dialog`, `dot`, `html`. (Default: `json`).
 - `--output`, `-o`: Optional destination file path. If omitted, output is printed to stdout.
 
 ### Example

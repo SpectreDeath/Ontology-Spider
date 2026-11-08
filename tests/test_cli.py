@@ -131,6 +131,13 @@ assert b subclass_of a
         self.assertIn("Explanation for previous answers:", out)
         self.assertIn("sedan instance_of car", out)
 
+    def test_module_main(self):
+        import runpy
+        buf = io.StringIO()
+        with patch("sys.argv", ["ontology_spider", "--help"]), patch("sys.exit") as mock_exit, contextlib.redirect_stdout(buf):
+            runpy.run_module("ontology_spider", run_name="__main__")
+            mock_exit.assert_called_with(0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=str(Path.cwd()), help="Root filesystem sandbox path")
     parser.add_argument("--max-sessions", type=int, default=32, help="Maximum concurrent active sessions (default: 32)")
     parser.add_argument("--max-assertions", type=int, default=50_000, help="Maximum assertions allowed per session (default: 50000)")
-    parser.add_argument("--timeout", type=int, default=10, help="Per-query timeout limit in seconds (default: 10)")
+    parser.add_argument("--timeout", type=float, default=10.0, help="Per-query timeout limit in seconds (default: 10.0)")
     parser.add_argument("--max-inferences", type=int, default=1_000_000, help="Maximum inferences allowed per query (default: 1000000)")
 
     args = parser.parse_args(argv)
