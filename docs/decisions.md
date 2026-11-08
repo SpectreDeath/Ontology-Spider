@@ -96,14 +96,14 @@ This document records the foundational decisions for the `Ontology-Spider` engin
   - Enables self-contained property checks, benchmarking, and differential parity tests across backends without relying on external test frameworks.
 
 ### 7.5 MCP Mutation & Sandboxing Policy
-- **Status**: **Recommendation pending user sign-off** (not a settled decision).
-- **Proposed Policy**:
-  - By default, allow in-memory session mutations (`assert_triple`, `declare_entity`, `retract`, `run_dialog`, `focus`, `constrain`) over stdio MCP.
-  - Strictly disable all mutation tools when launched with `--read-only`.
+- **Status**: **Settled Decision** (ratified 2026-11-08 per Consolidated follow-through plan Track 0.1).
+- **Settled Policy**:
+  - By default, allow in-memory session mutations (`assert_triple`, `declare_entity`, `retract`, `run_dialog`, `focus`, `constrain`) over stdio MCP (`read_only=False`).
+  - Strictly disable all mutation tools when launched with `--read-only` (returning error code `-32005`).
   - Confine all file system reads and writes (`model_load`, `export`) to `--root` directory via `Path.resolve().relative_to(root_dir)`.
   - Enforce bounds on max active sessions (32) and max assertions per session (50,000).
 - **Rationale**:
-  - In-memory mutations permit agents to explore counterfactuals or build interactive ontologies without persistent disk side-effects, while `--read-only` provides a strict safety latch.
+  - In-memory mutations permit agents to explore counterfactuals or build interactive ontologies without persistent disk side-effects, while `--read-only` provides a strict safety latch and `--root` prevents traversal escape. Ratified Argon's recommendation to match shipped server implementation.
 
 ### 7.6 CI Statement Coverage Progression and Fail-Under Gate
 - **Decision**: Enforce a mandatory `--fail-under=90` gate in `.github/workflows/ci.yml` and keep statement coverage above 90% across the codebase.
