@@ -2,6 +2,7 @@ import io
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ontology_spider.mcp.server import MCPServer
 from ontology_spider.mcp.transport import StdioTransport
@@ -485,7 +486,7 @@ class TestMCPServer(unittest.TestCase):
         self.assertIn("error", responses_cap[4])
         self.assertIn("exceeded maximum inferences limit", responses_cap[4]["error"]["message"])
 
-        # 2. Timeout cap test with timeout_seconds=1e-9
+        # 2. Timeout cap test with mocked deadline expiration
         msgs_to = [
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_to"}}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_to", "subject": "x", "predicate": "subclass_of", "object": "y"}}},
@@ -493,7 +494,8 @@ class TestMCPServer(unittest.TestCase):
             {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_to", "subject": "z", "predicate": "subclass_of", "object": "w"}}},
             {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_to", "query": "query ancestors of x"}}},
         ]
-        responses_to = self._run_sequence(msgs_to, backend="python", timeout_seconds=1e-9)
+        with patch("ontology_spider.reasoning.python_backend.time.monotonic", side_effect=[100.0] + [200.0] * 50):
+            responses_to = self._run_sequence(msgs_to, backend="python", timeout_seconds=1.0)
         self.assertIn("error", responses_to[4])
         self.assertIn("timeout", responses_to[4]["error"]["message"].lower())
 
