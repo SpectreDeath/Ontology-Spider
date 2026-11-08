@@ -110,7 +110,7 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Progression**:
   - `881a22a`: 78% statement coverage (3,069 statements, 665 missed; `python_backend.py` at 29%).
   - `0daeca5`: 91% statement coverage (3,074 statements, 274 missed across 89 unit tests; `python_backend.py` at 98%).
-  - Current HEAD: 91% statement coverage (3,492 statements, 319 missed across 96 unit tests).
+  - 2026-11-08 Track 4 HEAD: 91% statement coverage (3,563 statements, 322 missed across 99 unit tests).
 - **Rationale**:
   - A strict 90% coverage bar ensures that newly added features (such as MCP transports, synthetic generators, elicitation amendments, and multi-attribute recommendations) do not create unexercised code paths or regressions.
 
@@ -131,3 +131,12 @@ This document records the foundational decisions for the `Ontology-Spider` engin
   - CPU: AMD Ryzen 9 / x86_64
   - Python: 3.13.0 64-bit
   - SWI-Prolog: 9.2.x 64-bit (persistent worker subprocess bridge)
+
+### 7.9 Architecture Review Dispositions & Refactorings (Track 5)
+- **Date**: 2026-11-08
+- **Dispositions**:
+  - **5.1 Reasoner Sharing in TraversalDialogueManager**: `Session.__init__` now explicitly forwards `reasoner=self.reasoner` and timeout/inference parameters into `TraversalDialogueManager`, eliminating redundant `PrologReasoner` construction and facts cache duplication.
+  - **5.2 Session Reasoner & Traversal Wiring**: `Session.traversal` is unified with the active session reasoner and deadline parameters.
+  - **5.3 Engine Backend Availability Caching**: `Engine` caches the Prolog probe once per instance (`_prolog_available`) rather than instantiating reasoners on every property access.
+  - **5.4 Functional API Construction Pattern**: Confirmed that `api.run_query` and `Engine.query` retain one-shot construction as designed for stateless functional calls, while stateful workflows use `SessionManager` or `MCPServer`.
+  - **5.5 State Machine File Layout**: Verified that `mcp/server.py` and `elicitation.py` remain single cohesive units with clear sub-dispatchers, maintaining 100% test pass rate without artificial module fracturing.
