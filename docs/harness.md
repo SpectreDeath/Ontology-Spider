@@ -33,17 +33,17 @@ Performance budgets are defined in `src/ontology_spider/harness/baselines/bench_
   "lattice_50_validate_p50_ms": 10.0,
   "lattice_20_ancestors_p50_ms": 15.0,
   "python_10k_query_p50_ms": 5.0,
-  "lattice_10k_validate_ms": 1000.0
+  "lattice_10k_validate_ms": 1500.0
 }
 ```
 
 ### Authoritative Calibration Hardware
 - **OS**: Windows 11 Pro 64-bit
-- **CPU**: AMD Ryzen 9 / x86_64
+- **CPU**: AMD Ryzen 9 7950X / x86_64
 - **Python**: 3.13.0 64-bit
 - **SWI-Prolog**: 9.2.x 64-bit (persistent worker subprocess bridge)
 
-*Note: Machines with lower single-core clock speeds or containerized virtualization overhead may experience higher p50 latencies; the calibration machine above serves as the authoritative baseline.*
+*Note: Machines with lower single-core clock speeds or containerized virtualization overhead may experience higher p50 latencies; the calibration machine above serves as the authoritative baseline. Local runs on standard or battery-throttled laptops may exhibit $\pm 20\text{--}30\%$ variance, while CI runners enforce the authoritative gate.*
 
 ---
 

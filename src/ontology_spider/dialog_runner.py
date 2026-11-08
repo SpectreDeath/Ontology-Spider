@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -151,16 +152,16 @@ class DialogSession:
         if query.kind == "ancestors":
             target = query.subject
             visited: set[str] = {target}
-            queue: list[tuple[str, list[str], list[Assertion]]] = [(target, [target], [])]
+            queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
             while queue:
-                curr, path, asrts = queue.pop(0)
+                curr, path, asrts = queue.popleft()
                 for pred in ("subclass_of", "instance_of"):
                     for a in self.model.query(subject=curr, predicate=pred):
                         obj = a.relation.object
                         if obj not in visited:
                             visited.add(obj)
-                            new_path = path + [obj]
-                            new_asrts = asrts + [a]
+                            new_path = path + [obj] if len(path) < 50 else path
+                            new_asrts = asrts + [a] if len(asrts) < 50 else asrts
                             queue.append((obj, new_path, new_asrts))
                             answers.append(
                                 ReasonerAnswer(
@@ -179,15 +180,15 @@ class DialogSession:
             target = query.subject
             pred = query.predicate
             visited: set[str] = {target}
-            queue: list[tuple[str, list[str], list[Assertion]]] = [(target, [target], [])]
+            queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
             while queue:
-                curr, path, asrts = queue.pop(0)
+                curr, path, asrts = queue.popleft()
                 for a in self.model.query(subject=curr, predicate=pred):
                     obj = a.relation.object
                     if obj not in visited:
                         visited.add(obj)
-                        new_path = path + [obj]
-                        new_asrts = asrts + [a]
+                        new_path = path + [obj] if len(path) < 50 else path
+                        new_asrts = asrts + [a] if len(asrts) < 50 else asrts
                         queue.append((obj, new_path, new_asrts))
                         answers.append(
                             ReasonerAnswer(

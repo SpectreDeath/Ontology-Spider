@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,7 @@ from ontology_spider.prolog.reasoner import PrologReasoner
 from ontology_spider.reasoning.base import (
     Explanation,
     QuerySpec,
+    QueryTimeoutError,
     Reasoner,
     ReasonerAnswer,
     ReasonerResult,
@@ -256,16 +258,25 @@ class Session:
         )
 
         res = self.reasoner.query(self.model, spec)
-        formatted_answers = [
-            {
-                "value": a.value,
-                "rules_fired": a.explanation.rules_fired,
-                "path": a.explanation.path,
-                "fact_ids": a.explanation.fact_ids,
-                "provenance": [asrt.to_dict() for asrt in a.explanation.provenance_assertions],
-            }
-            for a in res.answers
-        ]
+        deadline = (
+            time.monotonic() + float(self.timeout_seconds)
+            if (self.timeout_seconds and self.timeout_seconds > 0)
+            else float("inf")
+        )
+        formatted_answers = []
+        for a in res.answers:
+            if time.monotonic() > deadline:
+                raise QueryTimeoutError("Query exceeded timeout limit during answer formatting")
+            prov_slice = a.explanation.provenance_assertions[:10]
+            formatted_answers.append(
+                {
+                    "value": a.value,
+                    "rules_fired": a.explanation.rules_fired,
+                    "path": a.explanation.path[:50],
+                    "fact_ids": a.explanation.fact_ids[:50],
+                    "provenance": [asrt.to_dict() for asrt in prov_slice],
+                }
+            )
 
         summary_vals = [str(a.value) for a in res.answers]
         summary = f"Query {query.kind}: {', '.join(summary_vals) if summary_vals else 'none'}"

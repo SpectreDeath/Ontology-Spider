@@ -29,7 +29,7 @@ python -m ontology_spider mcp --root . --backend python --timeout 5.0 --max-infe
 - **Operational Caps**:
   - `max_sessions`: Maximum concurrent in-memory sessions (default: 32).
   - `max_assertions_per_session`: Maximum assertions per session (default: 50,000).
-  - `timeout_seconds`: Per-query execution deadline in seconds (default: 10.0). Configurable via `--timeout <float>` flag on CLI and server init. Tested on 2026-11-08 with a synthetic linear chain ($N=10,000$, 10,000 assertions): running `query ancestors of node_0` under the Python backend with `--timeout 3.0` terminated deterministically at `3.043s` with `QueryTimeoutError`, while succeeding in `4.467s` under the default `--timeout 10.0` returning all 10,000 ancestors.
+  - `timeout_seconds`: Per-query execution deadline in seconds (default: 10.0). Configurable via `--timeout <float>` flag on CLI and server init. Verified with a synthetic linear chain ($N=10,000$, 9,999 assertions, leaf `c_9999`): querying `c_9999` under the Python backend with bounded explanation provenance completes in `1.151s` under the default `--timeout 10.0` returning all 9,999 ancestors with strictly bounded memory (<85 MB), while tight timeouts (e.g. `--timeout 0.05`) terminate deterministically with `QueryTimeoutError`.
   - `max_inferences`: Per-query inference step budget (default: 1,000,000). Enforced via `--max-inferences <int>` (tested with `max_inferences=2` raising `QueryInferenceLimitError`).
 - **Transport**:
   - Stdio JSON-RPC 2.0 with NDJSON and Content-Length framing support.

@@ -52,10 +52,10 @@ class ReasonerAnswer:
     def to_dict(self) -> dict[str, Any]:
         return {
             "value": self.value,
-            "rules_fired": self.explanation.rules_fired,
-            "fact_ids": self.explanation.fact_ids,
-            "path": self.explanation.path,
-            "provenance": [a.to_dict() for a in self.explanation.provenance_assertions],
+            "rules_fired": list(self.explanation.rules_fired),
+            "fact_ids": list(self.explanation.fact_ids[:50]),
+            "path": list(self.explanation.path[:50]),
+            "provenance": [a.to_dict() for a in self.explanation.provenance_assertions[:10]],
         }
 
 

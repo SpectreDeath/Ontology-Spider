@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from typing import Any, Optional
 
 from ontology_spider.model import Assertion, OntologyModel
@@ -149,12 +150,12 @@ class PythonReasoner(Reasoner):
     ) -> ReasonerResult:
         answers: list[ReasonerAnswer] = []
         visited: set[str] = {target}
-        queue: list[tuple[str, list[str], list[Assertion]]] = [(target, [target], [])]
+        queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
 
         while queue:
             if tracker:
                 tracker.step()
-            curr, path, asrts = queue.pop(0)
+            curr, path, asrts = queue.popleft()
             for a in model.get_outgoing(curr):
                 if tracker:
                     tracker.step()
@@ -162,8 +163,8 @@ class PythonReasoner(Reasoner):
                     obj = a.relation.object
                     if obj not in visited:
                         visited.add(obj)
-                        new_path = path + [obj]
-                        new_asrts = asrts + [a]
+                        new_path = path + [obj] if len(path) < 50 else path
+                        new_asrts = asrts + [a] if len(asrts) < 50 else asrts
                         queue.append((obj, new_path, new_asrts))
                         answers.append(
                             ReasonerAnswer(
@@ -190,20 +191,20 @@ class PythonReasoner(Reasoner):
     ) -> ReasonerResult:
         answers: list[ReasonerAnswer] = []
         visited: set[str] = {target}
-        queue: list[tuple[str, list[str], list[Assertion]]] = [(target, [target], [])]
+        queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
 
         while queue:
             if tracker:
                 tracker.step()
-            curr, path, asrts = queue.pop(0)
+            curr, path, asrts = queue.popleft()
             for a in model.query(subject=curr, predicate=pred):
                 if tracker:
                     tracker.step()
                 obj = a.relation.object
                 if obj not in visited:
                     visited.add(obj)
-                    new_path = path + [obj]
-                    new_asrts = asrts + [a]
+                    new_path = path + [obj] if len(path) < 50 else path
+                    new_asrts = asrts + [a] if len(asrts) < 50 else asrts
                     queue.append((obj, new_path, new_asrts))
                     answers.append(
                         ReasonerAnswer(

@@ -1,5 +1,6 @@
 import io
 import json
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -487,6 +488,12 @@ class TestMCPServer(unittest.TestCase):
         self.assertIn("exceeded maximum inferences limit", responses_cap[4]["error"]["message"])
 
         # 2. Timeout cap test with mocked deadline expiration
+        # Note on Clock Mocking:
+        # Mocking time.monotonic here is an intentional unit test design verifying internal
+        # deadline state machine plumbing and boundary mechanics across coarse OS timer ticks
+        # (avoiding physical timer jitter on virtualized CI runners). Genuine wall-clock timeout
+        # enforcement against a live running subprocess is tested end-to-end in
+        # test_mcp_prolog_backend_wall_clock_timeout.
         msgs_to = [
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_to"}}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_to", "subject": "x", "predicate": "subclass_of", "object": "y"}}},
@@ -548,6 +555,70 @@ class TestMCPServer(unittest.TestCase):
         self.assertNotIn("error", responses_ok[1])
         self.assertIn("result", responses_ok[1])
         self.assertIn("aerial_vehicle", responses_ok[1]["result"]["content"][0]["text"])
+
+    @unittest.skipUnless(PrologReasoner().is_available, "swipl not installed")
+    def test_mcp_prolog_backend_wall_clock_timeout(self):
+        """Verify real wall-clock timeout enforcement on the Prolog subprocess backend."""
+        from ontology_spider.harness.generators import generate_chain
+        from ontology_spider.export import to_dialog
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            # Generate a 500-node linear chain whose ancestry search under Prolog
+            # takes ~0.5s, comfortably challenging a 0.2s deadline.
+            model = generate_chain(500)
+            p = Path(td) / "chain500.dialog"
+            p.write_text(to_dialog(model), encoding="utf-8")
+
+            msgs = [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_prolog_to", "model_path": "chain500.dialog"}}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_prolog_to", "query": "query ancestors of c_499"}}},
+            ]
+            t0 = time.monotonic()
+            responses = self._run_sequence(msgs, backend="prolog", timeout_seconds=0.2, max_inferences=10_000_000, root_dir=Path(td))
+            elapsed = time.monotonic() - t0
+
+            self.assertIn("result", responses[0])
+            self.assertIn("error", responses[1])
+            self.assertEqual(responses[1]["error"]["code"], -32000)
+            self.assertIn("timed out", responses[1]["error"]["message"].lower())
+            self.assertLessEqual(elapsed, 1.5)
+
+    def test_large_chain_query_memory_bounded(self):
+        """Assert 10,000-node chain query completes within memory budget (<= 100MB) returning 9,999 answers."""
+        import tracemalloc
+        from ontology_spider.harness.generators import generate_chain
+        from ontology_spider.engine import Session, QueryTimeoutError
+        from ontology_spider.reasoning.python_backend import PythonReasoner
+
+        model = generate_chain(10000)
+        session = Session(model=model, reasoner=PythonReasoner(), timeout_seconds=10.0)
+
+        tracemalloc.start()
+        t0 = time.monotonic()
+        res = session.execute("query ancestors of c_9999")
+        elapsed = time.monotonic() - t0
+        _, peak_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        peak_mb = peak_bytes / (1024 * 1024)
+        self.assertTrue(res)
+        self.assertEqual(len(res[0].answers), 9999)
+        self.assertLessEqual(peak_mb, 100.0)
+        self.assertLessEqual(elapsed, 5.0)
+
+        # Also assert tight timeout terminates deterministically
+        session_to = Session(model=model, reasoner=PythonReasoner(), timeout_seconds=0.05)
+        with self.assertRaises(QueryTimeoutError):
+            session_to.execute("query ancestors of c_9999")
+
+        # And if Prolog is available, verify Prolog handles chain queries without error
+        if PrologReasoner().is_available:
+            model_pl = generate_chain(200)
+            session_pl = Session(model=model_pl, reasoner=PrologReasoner(), timeout_seconds=5.0)
+            res_pl = session_pl.execute("query ancestors of c_199")
+            self.assertTrue(res_pl)
+            self.assertEqual(len(res_pl[0].answers), 199)
 
 
 if __name__ == "__main__":

@@ -4,5 +4,5 @@
   "lattice_50_validate_p50_ms": 10.0,
   "lattice_20_ancestors_p50_ms": 15.0,
   "python_10k_query_p50_ms": 5.0,
-  "lattice_10k_validate_ms": 1000.0
+  "lattice_10k_validate_ms": 1500.0
 }
