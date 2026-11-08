@@ -559,23 +559,23 @@ class TestMCPServer(unittest.TestCase):
     @unittest.skipUnless(PrologReasoner().is_available, "swipl not installed")
     def test_mcp_prolog_backend_wall_clock_timeout(self):
         """Verify real wall-clock timeout enforcement on the Prolog subprocess backend."""
-        from ontology_spider.harness.generators import generate_chain
+        from ontology_spider.harness.generators import generate_lattice
         from ontology_spider.export import to_dialog
         import tempfile
 
         with tempfile.TemporaryDirectory() as td:
-            # Generate a 500-node linear chain whose ancestry search under Prolog
-            # takes ~0.5s, comfortably challenging a 0.2s deadline.
-            model = generate_chain(500)
-            p = Path(td) / "chain500.dialog"
+            # Generate a 500-node lattice whose complex ancestry search under Prolog
+            # takes ~250ms, reliably challenging a 0.05s deadline across all platforms.
+            model = generate_lattice(500)
+            p = Path(td) / "lattice500.dialog"
             p.write_text(to_dialog(model), encoding="utf-8")
 
             msgs = [
-                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_prolog_to", "model_path": "chain500.dialog"}}},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_prolog_to", "query": "query ancestors of c_499"}}},
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_prolog_to", "model_path": "lattice500.dialog"}}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_prolog_to", "query": "query ancestors of bottom"}}},
             ]
             t0 = time.monotonic()
-            responses = self._run_sequence(msgs, backend="prolog", timeout_seconds=0.2, max_inferences=10_000_000, root_dir=Path(td))
+            responses = self._run_sequence(msgs, backend="prolog", timeout_seconds=0.05, max_inferences=10_000_000, root_dir=Path(td))
             elapsed = time.monotonic() - t0
 
             self.assertIn("result", responses[0])
