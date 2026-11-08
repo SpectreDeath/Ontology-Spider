@@ -66,7 +66,7 @@ class TestDocsVerbatim(unittest.TestCase):
         expected_cli_line = f"{len(subcommands)} CLI subcommands ({', '.join(subcommands)})"
         self.assertIn(expected_cli_line, text)
         self.assertIn(f"Ontology-Spider provides {len(subcommands)} CLI subcommands:", text)
-        self.assertIn("96 unit tests", text)
+        self.assertIn("99 unit tests", text)
         self.assertIn("coverage report --fail-under=90", text)
 
     def test_all_fenced_dialog_blocks_parse(self):

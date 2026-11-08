@@ -65,7 +65,7 @@ pip install -e .
 *(Alternative without installation: set `PYTHONPATH=src` or `$env:PYTHONPATH="src;."` before running commands.)*
 
 ### Running Tests & Coverage
-The test suite contains 96 unit tests with >=90% statement coverage:
+The test suite contains 99 unit tests with >=90% statement coverage:
 ```bash
 # Run all tests
 python -m unittest discover -s tests

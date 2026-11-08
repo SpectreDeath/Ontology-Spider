@@ -272,6 +272,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mcp_parser.add_argument("--read-only", action="store_true", help="Disallow mutating sessions or models")
     mcp_parser.add_argument("--root", default=str(Path.cwd()), help="Root filesystem sandbox path")
+    mcp_parser.add_argument("--max-sessions", type=int, default=32, help="Maximum concurrent active sessions (default: 32)")
+    mcp_parser.add_argument("--max-assertions", type=int, default=50_000, help="Maximum assertions allowed per session (default: 50000)")
+    mcp_parser.add_argument("--timeout", type=float, default=10.0, help="Per-query timeout limit in seconds (default: 10)")
+    mcp_parser.add_argument("--max-inferences", type=int, default=1_000_000, help="Maximum inferences allowed per query (default: 1000000)")
 
     return parser
 
@@ -297,6 +301,10 @@ def main(argv: list[str] | None = None) -> int:
             transport=StdioTransport(),
             read_only=args.read_only,
             root_dir=Path(args.root),
+            max_sessions=args.max_sessions,
+            max_assertions_per_session=args.max_assertions,
+            timeout_seconds=args.timeout,
+            max_inferences=args.max_inferences,
             backend=None if args.backend == "auto" else args.backend,
             preload_model_path=Path(args.model) if args.model else None,
         )

@@ -28,11 +28,20 @@ class TraversalDialogueManager:
     def __init__(
         self,
         model: OntologyModel,
-        reasoner: Optional[PrologReasoner] = None,
+        reasoner: Optional[Any] = None,
+        timeout_seconds: float = 10.0,
+        max_inferences: int = 1_000_000,
     ) -> None:
         self.model = model
+        self.timeout_seconds = timeout_seconds
+        self.max_inferences = max_inferences
         self.reasoner = reasoner or PrologReasoner()
-        self.session = DialogSession(model=self.model, reasoner=self.reasoner)
+        self.session = DialogSession(
+            model=self.model,
+            reasoner=self.reasoner,
+            timeout_seconds=self.timeout_seconds,
+            max_inferences=self.max_inferences,
+        )
         self.frame_stack: list[TraversalFrame] = []
         self._frame_counter = 0
 

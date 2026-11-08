@@ -84,8 +84,20 @@ class QuerySpec:
     filter_key: Optional[str] = None
     filter_val: Optional[Any] = None
     filter_attributes: Mapping[str, Any] = field(default_factory=dict)
-    timeout_seconds: int = 10
+    timeout_seconds: float = 10.0
     max_inferences: int = 1_000_000
+
+
+class QueryExecutionError(Exception):
+    """Raised when a query fails runtime caps or execution constraints."""
+
+
+class QueryTimeoutError(QueryExecutionError):
+    """Raised when a query exceeds its allocated time limit."""
+
+
+class QueryInferenceLimitError(QueryExecutionError):
+    """Raised when a query exceeds its maximum inference steps."""
 
 
 @runtime_checkable

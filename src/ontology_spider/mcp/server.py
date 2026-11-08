@@ -65,8 +65,19 @@ class MCPServer:
             resolved = self._resolve_safe_path(str(preload_model_path))
             loaded = DialogModelSource(resolved).load()
             reasoner = self._get_reasoner()
-            session = self.sessions.open_session("default", loaded, reasoner=reasoner)
-            self.dialogue_managers["default"] = TraversalDialogueManager(session.model, reasoner=reasoner)
+            session = self.sessions.open_session(
+                "default",
+                loaded,
+                reasoner=reasoner,
+                timeout_seconds=self.timeout_seconds,
+                max_inferences=self.max_inferences,
+            )
+            self.dialogue_managers["default"] = TraversalDialogueManager(
+                session.model,
+                reasoner=reasoner,
+                timeout_seconds=self.timeout_seconds,
+                max_inferences=self.max_inferences,
+            )
 
     def _get_reasoner(self) -> Optional[Any]:
         if self.backend == "python":
@@ -371,11 +382,28 @@ class MCPServer:
                 model = DialogModelSource(resolved).load()
                 if len(model.assertions) > self.max_assertions_per_session:
                     raise ValueError(f"Assertion cap exceeded: loaded model has {len(model.assertions)} assertions (cap: {self.max_assertions_per_session}).")
-                session = self.sessions.open_session(sid, model, reasoner=reasoner)
+                session = self.sessions.open_session(
+                    sid,
+                    model,
+                    reasoner=reasoner,
+                    timeout_seconds=self.timeout_seconds,
+                    max_inferences=self.max_inferences,
+                )
             else:
                 uri = args.get("uri") or f"urn:mcp:{sid}"
-                session = self.sessions.open_session(sid, OntologyModel(uri=uri), reasoner=reasoner)
-            self.dialogue_managers[sid] = TraversalDialogueManager(session.model, reasoner=reasoner)
+                session = self.sessions.open_session(
+                    sid,
+                    OntologyModel(uri=uri),
+                    reasoner=reasoner,
+                    timeout_seconds=self.timeout_seconds,
+                    max_inferences=self.max_inferences,
+                )
+            self.dialogue_managers[sid] = TraversalDialogueManager(
+                session.model,
+                reasoner=reasoner,
+                timeout_seconds=self.timeout_seconds,
+                max_inferences=self.max_inferences,
+            )
             return {"content": [{"type": "text", "text": f"Session '{sid}' opened."}], "sessionId": sid}
 
         elif name == "session_close":
@@ -389,8 +417,10 @@ class MCPServer:
             return {"content": [{"type": "text", "text": json.dumps(sids, indent=2)}], "sessions": sids}
 
         elif name == "engine_info":
+            active_reasoner = self._get_reasoner()
+            active_backend = active_reasoner.name if active_reasoner else self.engine.active_backend_name
             info = {
-                "active_backend": self.engine.active_backend_name,
+                "active_backend": active_backend,
                 "backends": self.engine.available_backends,
                 "read_only": self.read_only,
                 "root_dir": str(self.root_dir),
@@ -408,7 +438,15 @@ class MCPServer:
         session = self.sessions.get_session(sid)
         if not session:
             raise ValueError(f"Session not found: {sid}")
-        mgr = self.dialogue_managers.setdefault(sid, TraversalDialogueManager(session.model, reasoner=session.reasoner))
+        mgr = self.dialogue_managers.setdefault(
+            sid,
+            TraversalDialogueManager(
+                session.model,
+                reasoner=session.reasoner,
+                timeout_seconds=self.timeout_seconds,
+                max_inferences=self.max_inferences,
+            ),
+        )
 
         if name == "model_load":
             resolved = self._resolve_safe_path(args["path"])

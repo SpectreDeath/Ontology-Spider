@@ -16,9 +16,14 @@ from typing import Any, Optional
 from ontology_spider.model import Assertion, OntologyModel
 from ontology_spider.prolog.translator import model_to_prolog_facts, prolog_safe_string
 from ontology_spider.prolog.worker import PersistentPrologWorker
+from ontology_spider.reasoning.base import (
+    QueryExecutionError,
+    QueryInferenceLimitError as BaseQueryInferenceLimitError,
+    QueryTimeoutError as BaseQueryTimeoutError,
+)
 
 
-class PrologError(Exception):
+class PrologError(QueryExecutionError):
     """Base error for Prolog reasoning."""
 
 
@@ -30,11 +35,11 @@ class PrologExecutionError(PrologError):
     """Raised when a query fails runtime caps or execution constraints."""
 
 
-class QueryTimeoutError(PrologError):
+class QueryTimeoutError(PrologError, BaseQueryTimeoutError):
     """Raised when a query exceeds its allocated time limit."""
 
 
-class QueryInferenceLimitError(PrologError):
+class QueryInferenceLimitError(PrologError, BaseQueryInferenceLimitError):
     """Raised when a query exceeds its allocated inference cap."""
 
 

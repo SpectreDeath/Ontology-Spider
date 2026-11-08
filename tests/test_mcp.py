@@ -40,6 +40,8 @@ class TestMCPServer(unittest.TestCase):
         max_assertions_per_session: int = 50_000,
         backend: str | None = None,
         preload_model_path: Path | None = None,
+        timeout_seconds: float = 10.0,
+        max_inferences: int = 1_000_000,
     ) -> list[dict]:
         raw_in = "\n".join(json.dumps(m) for m in messages) + "\n"
         transport = FakeStreamTransport(raw_in)
@@ -51,6 +53,8 @@ class TestMCPServer(unittest.TestCase):
             max_assertions_per_session=max_assertions_per_session,
             backend=backend,
             preload_model_path=preload_model_path,
+            timeout_seconds=timeout_seconds,
+            max_inferences=max_inferences,
         )
         server.run()
         return transport.get_output_messages()
@@ -450,6 +454,65 @@ class TestMCPServer(unittest.TestCase):
         # 4. Incomplete Content-Length payload
         t_short = StdioTransport(in_stream=io.StringIO("Content-Length: 100\r\n\r\nshort"))
         self.assertIsNone(t_short.read_message())
+
+    def test_mcp_python_backend_query_execution(self):
+        msgs = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "engine_info", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_py"}}},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_py", "subject": "quadcopter", "predicate": "subclass_of", "object": "drone"}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_py", "subject": "drone", "predicate": "subclass_of", "object": "aerial_vehicle"}}},
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_py", "query": "query ancestors of quadcopter"}}},
+        ]
+        responses = self._run_sequence(msgs, backend="python")
+        self.assertEqual(len(responses), 5)
+        info = json.loads(responses[0]["result"]["content"][0]["text"])
+        self.assertEqual(info["active_backend"], "python")
+        q_text = responses[4]["result"]["content"][0]["text"]
+        self.assertIn("drone", q_text)
+        self.assertIn("aerial_vehicle", q_text)
+
+    def test_mcp_query_timeout_and_inference_caps(self):
+        # 1. Inference cap test with max_inferences=1
+        msgs_cap = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_cap"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "a", "predicate": "subclass_of", "object": "b"}}},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "b", "predicate": "subclass_of", "object": "c"}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "c", "predicate": "subclass_of", "object": "d"}}},
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_cap", "query": "query ancestors of a"}}},
+        ]
+        responses_cap = self._run_sequence(msgs_cap, backend="python", max_inferences=1)
+        self.assertIn("error", responses_cap[4])
+        self.assertIn("exceeded maximum inferences limit", responses_cap[4]["error"]["message"])
+
+        # 2. Timeout cap test with timeout_seconds=0.000001
+        msgs_to = [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_to"}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_to", "subject": "x", "predicate": "subclass_of", "object": "y"}}},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_to", "subject": "y", "predicate": "subclass_of", "object": "z"}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_to", "query": "query ancestors of x"}}},
+        ]
+        responses_to = self._run_sequence(msgs_to, backend="python", timeout_seconds=0.000001)
+        self.assertIn("error", responses_to[3])
+        self.assertIn("timeout", responses_to[3]["error"]["message"].lower())
+
+    def test_cli_mcp_flags(self):
+        from ontology_spider.cli import build_parser
+        parser = build_parser()
+        args = parser.parse_args([
+            "mcp",
+            "--timeout", "3",
+            "--max-inferences", "100",
+            "--max-sessions", "8",
+            "--max-assertions", "500",
+            "--backend", "python",
+            "--read-only",
+        ])
+        self.assertEqual(args.timeout, 3.0)
+        self.assertEqual(args.max_inferences, 100)
+        self.assertEqual(args.max_sessions, 8)
+        self.assertEqual(args.max_assertions, 500)
+        self.assertEqual(args.backend, "python")
+        self.assertTrue(args.read_only)
 
 
 if __name__ == "__main__":

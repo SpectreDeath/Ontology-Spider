@@ -83,10 +83,14 @@ class Session:
         model: Optional[OntologyModel] = None,
         reasoner: Optional[Reasoner] = None,
         base_dir: Optional[Path] = None,
+        timeout_seconds: float = 10.0,
+        max_inferences: int = 1_000_000,
     ) -> None:
         self.session_id: str = session_id or uuid.uuid4().hex[:8]
         self.model: OntologyModel = model or OntologyModel(uri=f"urn:dialog:session:{self.session_id}")
         self.base_dir: Path = base_dir or Path.cwd()
+        self.timeout_seconds: float = timeout_seconds
+        self.max_inferences: int = max_inferences
 
         if reasoner is not None:
             self.reasoner = reasoner
@@ -95,7 +99,12 @@ class Session:
             self.reasoner = prolog if prolog.is_available else PythonReasoner()
 
         self.python_reasoner = PythonReasoner()
-        self.traversal = TraversalDialogueManager(model=self.model)
+        self.traversal = TraversalDialogueManager(
+            model=self.model,
+            reasoner=self.reasoner,
+            timeout_seconds=self.timeout_seconds,
+            max_inferences=self.max_inferences,
+        )
         self.turn_counter: int = 0
         self.history: list[QueryResult] = []
         self.last_query_result: Optional[QueryResult] = None
@@ -243,6 +252,8 @@ class Session:
             filter_key=query.filter_key,
             filter_val=query.filter_val,
             filter_attributes=query.filter_attributes,
+            timeout_seconds=float(self.timeout_seconds),
+            max_inferences=int(self.max_inferences),
         )
 
         res = self.reasoner.query(self.model, spec)
@@ -283,9 +294,19 @@ class SessionManager:
         session_id: Optional[str] = None,
         model: Optional[OntologyModel] = None,
         reasoner: Optional[Reasoner] = None,
+        timeout_seconds: float = 10.0,
+        max_inferences: int = 1_000_000,
+        **kwargs: Any,
     ) -> Session:
         sid = session_id or uuid.uuid4().hex[:8]
-        session = Session(session_id=sid, model=model, reasoner=reasoner)
+        session = Session(
+            session_id=sid,
+            model=model,
+            reasoner=reasoner,
+            timeout_seconds=timeout_seconds,
+            max_inferences=max_inferences,
+            **kwargs,
+        )
         self._sessions[sid] = session
         return session
 
@@ -294,8 +315,18 @@ class SessionManager:
         session_id: Optional[str] = None,
         model: Optional[OntologyModel] = None,
         reasoner: Optional[Reasoner] = None,
+        timeout_seconds: float = 10.0,
+        max_inferences: int = 1_000_000,
+        **kwargs: Any,
     ) -> Session:
-        return self.create_session(session_id=session_id, model=model, reasoner=reasoner)
+        return self.create_session(
+            session_id=session_id,
+            model=model,
+            reasoner=reasoner,
+            timeout_seconds=timeout_seconds,
+            max_inferences=max_inferences,
+            **kwargs,
+        )
 
     def get_session(self, session_id: str) -> Optional[Session]:
         return self._sessions.get(session_id)
@@ -312,17 +343,20 @@ class Engine:
 
     def __init__(self) -> None:
         self.session_manager = SessionManager()
+        self._prolog_available: Optional[bool] = None
 
     @property
     def active_backend_name(self) -> str:
-        prolog = PrologReasoner()
-        return "prolog" if prolog.is_available else "python"
+        if self._prolog_available is None:
+            self._prolog_available = PrologReasoner().is_available
+        return "prolog" if self._prolog_available else "python"
 
     @property
     def available_backends(self) -> list[str]:
-        prolog = PrologReasoner()
+        if self._prolog_available is None:
+            self._prolog_available = PrologReasoner().is_available
         backends = ["python"]
-        if prolog.is_available:
+        if self._prolog_available:
             backends.append("prolog")
         return backends
 

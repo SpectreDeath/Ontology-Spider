@@ -28,6 +28,7 @@ from ontology_spider.prolog.reasoner import (
     ReasonerAnswer,
     ReasonerResult,
 )
+from ontology_spider.reasoning.base import QuerySpec
 from ontology_spider.seam import DialogModelSource, JsonModelSource, load_imported_model
 
 
@@ -46,14 +47,18 @@ class DialogSession:
     def __init__(
         self,
         model: Optional[OntologyModel] = None,
-        reasoner: Optional[PrologReasoner] = None,
+        reasoner: Optional[Any] = None,
         base_dir: Optional[Path] = None,
         allow_degraded_fallback: bool = True,
+        timeout_seconds: float = 10.0,
+        max_inferences: int = 1_000_000,
     ) -> None:
         self.model = model or OntologyModel(uri="urn:dialog:session")
         self.reasoner = reasoner or PrologReasoner()
         self.base_dir = base_dir or Path.cwd()
         self.allow_degraded_fallback = allow_degraded_fallback
+        self.timeout_seconds = timeout_seconds
+        self.max_inferences = max_inferences
         self.turn_counter: int = 0
         self.last_query_result: Optional[ReasonerResult] = None
         self.history: list[DialogTurnResult] = []
@@ -335,15 +340,19 @@ class DialogSession:
             )
 
         if query.kind == "ancestors":
-            if not self.reasoner.is_available:
+            spec = QuerySpec(
+                kind="ancestors",
+                subject=query.subject,
+                timeout_seconds=float(self.timeout_seconds),
+                max_inferences=int(self.max_inferences),
+            )
+            if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
                 reasoner_res = self._execute_degraded_query(query)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
-                reasoner_res = self.reasoner.query(
-                    self.model, goal_type="ancestors", subject=query.subject
-                )
+                reasoner_res = self.reasoner.query(self.model, spec)
                 prefix = ""
             self.last_query_result = reasoner_res
             vals = [str(a.value) for a in reasoner_res.answers]
@@ -356,18 +365,20 @@ class DialogSession:
             )
 
         if query.kind == "transitive":
-            if not self.reasoner.is_available:
+            spec = QuerySpec(
+                kind="transitive",
+                subject=query.subject,
+                predicate=query.predicate,
+                timeout_seconds=float(self.timeout_seconds),
+                max_inferences=int(self.max_inferences),
+            )
+            if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
                 reasoner_res = self._execute_degraded_query(query)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
-                reasoner_res = self.reasoner.query(
-                    self.model,
-                    goal_type="transitive",
-                    subject=query.subject,
-                    predicate=query.predicate,
-                )
+                reasoner_res = self.reasoner.query(self.model, spec)
                 prefix = ""
             self.last_query_result = reasoner_res
             vals = [str(a.value) for a in reasoner_res.answers]
@@ -382,20 +393,23 @@ class DialogSession:
         if query.kind == "recommend":
             cls_name = query.object or query.subject or ""
             f_val = self._coerce_val(query.filter_val) if query.filter_val is not None else None
-            if not self.reasoner.is_available:
+            spec = QuerySpec(
+                kind="recommend",
+                subject=cls_name,
+                object=cls_name,
+                filter_key=query.filter_key,
+                filter_val=f_val,
+                filter_attributes=dict(query.filter_attributes) if query.filter_attributes else {},
+                timeout_seconds=float(self.timeout_seconds),
+                max_inferences=int(self.max_inferences),
+            )
+            if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
                 reasoner_res = self._execute_degraded_query(query)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
-                reasoner_res = self.reasoner.query(
-                    self.model,
-                    goal_type="recommend",
-                    subject=cls_name,
-                    req_key=query.filter_key,
-                    req_val=f_val,
-                    filter_attributes=dict(query.filter_attributes),
-                )
+                reasoner_res = self.reasoner.query(self.model, spec)
                 prefix = ""
             self.last_query_result = reasoner_res
             vals = [str(a.value) for a in reasoner_res.answers]
@@ -454,19 +468,21 @@ class DialogSession:
 
 
         if query.kind == "pattern":
-            if not self.reasoner.is_available:
+            spec = QuerySpec(
+                kind="pattern",
+                subject=query.subject,
+                predicate=query.predicate,
+                object=query.object,
+                timeout_seconds=float(self.timeout_seconds),
+                max_inferences=int(self.max_inferences),
+            )
+            if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
                 reasoner_res = self._execute_degraded_query(query)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
-                reasoner_res = self.reasoner.query(
-                    self.model,
-                    goal_type="pattern",
-                    subject=query.subject,
-                    predicate=query.predicate,
-                    object=query.object,
-                )
+                reasoner_res = self.reasoner.query(self.model, spec)
                 prefix = ""
             self.last_query_result = reasoner_res
             matched_triples = [
