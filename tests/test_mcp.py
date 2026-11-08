@@ -485,16 +485,17 @@ class TestMCPServer(unittest.TestCase):
         self.assertIn("error", responses_cap[4])
         self.assertIn("exceeded maximum inferences limit", responses_cap[4]["error"]["message"])
 
-        # 2. Timeout cap test with timeout_seconds=0.000001
+        # 2. Timeout cap test with timeout_seconds=1e-9
         msgs_to = [
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_to"}}},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_to", "subject": "x", "predicate": "subclass_of", "object": "y"}}},
             {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_to", "subject": "y", "predicate": "subclass_of", "object": "z"}}},
-            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_to", "query": "query ancestors of x"}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_to", "subject": "z", "predicate": "subclass_of", "object": "w"}}},
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_to", "query": "query ancestors of x"}}},
         ]
-        responses_to = self._run_sequence(msgs_to, backend="python", timeout_seconds=0.000001)
-        self.assertIn("error", responses_to[3])
-        self.assertIn("timeout", responses_to[3]["error"]["message"].lower())
+        responses_to = self._run_sequence(msgs_to, backend="python", timeout_seconds=1e-9)
+        self.assertIn("error", responses_to[4])
+        self.assertIn("timeout", responses_to[4]["error"]["message"].lower())
 
     def test_cli_mcp_flags(self):
         from ontology_spider.cli import build_parser
