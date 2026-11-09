@@ -115,7 +115,8 @@ This document records the foundational decisions for the `Ontology-Spider` engin
   - `881a22a`: 78% statement coverage (3,069 statements, 665 missed; `python_backend.py` at 29%).
   - `0daeca5`: 91% statement coverage (3,074 statements, 274 missed across 89 unit tests; `python_backend.py` at 98%).
   - `7970a12` (Track 4 HEAD): 91% statement coverage (3,563 statements, 322 missed across 99 unit tests).
-  - 2026-11-08 (Track 3 & 5 Corrections HEAD): 91% statement coverage (3,566 statements, 318 missed on Windows, 322 missed on Linux across 101 unit tests; `prolog/reasoner.py:95-101` Windows candidate fallbacks unhit on Linux).
+  - `113c5de` (Track 3 & 5 Corrections HEAD): 91% statement coverage (3,566 statements, 318 missed on Windows, 322 missed on Linux across 101 unit tests; `prolog/reasoner.py:95-101` Windows candidate fallbacks unhit on Linux).
+  - `8614a82` (Current HEAD): 91% statement coverage (3,575 statements, 319 missed on Windows [91.08%], 323 missed on Linux [90.96%] across 103 unit tests; parameter pass-through added 9 statements and 1 miss; 4-line difference reflects Windows-specific `swipl` discovery in `prolog/reasoner.py:95-101` unreached on Linux).
 - **Rationale**:
   - A strict 90% coverage bar ensures that newly added features (such as MCP transports, synthetic generators, elicitation amendments, and multi-attribute recommendations) do not create unexercised code paths or regressions.
 
@@ -148,7 +149,7 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 
 ### 7.10 Verified CI Run History & Platform Timer Resolution
 - **Date**: 2026-11-08
-- **Context**: CI runs on GitHub Actions experienced failures across initial attempts before achieving 11/11 matrix green on commit `113c5de`. The step-level execution logs from the GitHub Actions REST API establish the verified failure taxonomy:
+- **Context**: CI runs on GitHub Actions experienced failures across initial attempts before achieving 11/11 matrix green on commit `113c5de`. The job-level metadata and step outcomes from the GitHub Actions REST API (`/actions/runs/{run_id}/jobs`) establish the verified failure taxonomy; full job log download returns HTTP 403 (admin privileges required):
   - **Run `42502698245` (commit `7970a12`)**: Conclusion `failure` (7/11 passed, 4 failed).
     - Failed jobs: `test (windows-latest, 3.10, 3.11, 3.12, 3.13)`.
     - Failing step: `Install SWI-Prolog (Windows)`.
@@ -166,7 +167,7 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Date**: 2026-11-08
 - **Problem**: Querying transitive ancestry on large linear chains (e.g. `c_9999` on a 10,000-node chain) caused quadratic $O(N^2)$ memory explosion:
   - Empirical baseline: $N=200 \implies 14\text{ MB}$, $0.165\text{s}$; $N=500 \implies 85\text{ MB}$, $1.025\text{s}$; $N=1,000 \implies 338\text{ MB}$, $4.944\text{s}$; $N=10,000 \implies >33\text{ GB}$ (OOM crash, exit 137).
-  - Note: An earlier measurement of 4.467s on `generate_chain(10000)` had queried non-existent `node_0`, returning 0 answers in 0.001s and masking the true quadratic explosion.
+  - Note: An earlier measurement of 4.467s on `generate_chain(10000)` matches no measured live behavior (0.001s for non-existent `node_0`; ~200s+/OOM for pre-fix 10k leaf) and is recorded as an unresolved measurement artifact; empirical baseline numbers ($N=200 \to 14\text{MB}$, $N=500 \to 85\text{MB}$, $N=1,000 \to 338\text{MB}$, $N=10,000 \to \text{OOM}$) are verified live.
   - Root causes:
     1. Reasoner accumulated full subpath copies (`path + [obj]`) and full assertion lists (`asrts + [a]`) for every answer $k \in [1, N-1]$, creating $\sum k = \frac{N(N-1)}{2} \approx 50,000,000$ objects.
     2. Unbounded formatting loop in `engine.py` converted every assertion to a dictionary without checking query deadlines.
@@ -177,6 +178,7 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Result**:
   - $N=10,000$ chain query on leaf `c_9999` returns all 9,999 ancestors in **1.151s** with peak memory strictly bounded to **<85 MB** (down from >33 GB OOM).
   - Tight deadlines (e.g. `--timeout 0.05`) terminate deterministically in **0.050s** with `QueryTimeoutError` and peak memory <3 MB.
+  - Large chain regression testing on the Prolog backend is scoped to 200 nodes (199 answers) at default settings; 10,000-node linear chains on Prolog exceed the 1,000,000 inference step cap and 1,000 `max_results` default limits.
 
 ### 7.12 Benchmark Calibration Baseline & Lattice Threshold Adjustment
 - **Date**: 2026-11-08
