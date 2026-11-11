@@ -18,11 +18,47 @@ dependencies = []
 dialog = "ontology_spider.cli:main"
 
 [project.optional-dependencies]
-dev = []
+dev = [
+    "coverage>=7.0",
+    "mypy>=1.8",
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (unused imports, undefined names, etc.)
+    "I",   # isort
+]
+ignore = [
+    "E501", # line too long
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F841"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+check_untyped_defs = true
+
+[tool.coverage.run]
+source = ["src/ontology_spider"]
+branch = false
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
 

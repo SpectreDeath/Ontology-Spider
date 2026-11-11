@@ -2,20 +2,18 @@ import unittest
 
 from ontology_spider.dialog_runner import DialogSession
 from ontology_spider.model import (
-    Assertion,
+    INSTANCE_OF,
+    SUBCLASS_OF,
     Entity,
     OntologyModel,
     Provenance,
     Relation,
-    INSTANCE_OF,
-    SUBCLASS_OF,
 )
 from ontology_spider.prolog.reasoner import (
     PrologExecutionError,
     PrologReasoner,
     QueryInferenceLimitError,
     QueryTimeoutError,
-    find_swipl_executable,
 )
 from ontology_spider.prolog.translator import (
     model_to_prolog_facts,
@@ -84,7 +82,10 @@ class TestPrologReasoner(unittest.TestCase):
         self.assertEqual(len(res.answers), 1)
 
     def test_control_character_xnn_roundtrip(self):
-        from ontology_spider.prolog.translator import prolog_safe_string, unescape_prolog_atom
+        from ontology_spider.prolog.translator import (
+            prolog_safe_string,
+            unescape_prolog_atom,
+        )
         test_str = "prefix_\x00_\x01_\x1f_\x7f_suffix"
         safe = prolog_safe_string(test_str)
         self.assertIn(r"\x00", safe)

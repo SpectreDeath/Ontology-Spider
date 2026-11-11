@@ -100,8 +100,8 @@ python -m ontology_spider mcp --root . --backend python --timeout 5.0 --max-infe
 ## 4. MCP Resources Reference (3 Schemes)
 
 1. **`ontology://docs/language-reference`**:
-   - Returns the complete Markdown language reference and formal grammar.
+   - Returns the complete Markdown language reference and formal grammar (reads from `docs/language_reference.md` relative to `--root`, falling back to bundled package documentation when run in external workspaces).
 2. **`ontology://session/{session_id}/model.json`**:
    - Returns live JSON serialization of the model in the named active session.
 3. **`ontology://examples/{stem}`**:
-   - Returns raw text of bundled example dialog scripts (e.g. `examples/tutorial.dialog`, `examples/drones.dialog`).
+   - Returns raw text of bundled or workspace example dialog scripts (e.g. `examples/tutorial.dialog`, `examples/drones.dialog`), safely resolved through the sandbox root with fallback to package examples.

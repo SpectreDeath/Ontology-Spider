@@ -5,20 +5,25 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
-import tempfile
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from ontology_spider.model import Assertion, OntologyModel
+from ontology_spider.model import OntologyModel
 from ontology_spider.prolog.translator import model_to_prolog_facts, prolog_safe_string
 from ontology_spider.prolog.worker import PersistentPrologWorker
 from ontology_spider.reasoning.base import (
+    Explanation,
     QueryExecutionError,
+    QuerySpec,
+    ReasonerAnswer,
+    ReasonerResult,
+)
+from ontology_spider.reasoning.base import (
     QueryInferenceLimitError as BaseQueryInferenceLimitError,
+)
+from ontology_spider.reasoning.base import (
     QueryTimeoutError as BaseQueryTimeoutError,
 )
 
@@ -43,49 +48,7 @@ class QueryInferenceLimitError(PrologError, BaseQueryInferenceLimitError):
     """Raised when a query exceeds its allocated inference cap."""
 
 
-@dataclass
-class Explanation:
-    """Audit trace proving how an answer was derived."""
-    rules_fired: list[str] = field(default_factory=list)
-    fact_ids: list[str] = field(default_factory=list)
-    path: list[str] = field(default_factory=list)
-    provenance_assertions: list[Assertion] = field(default_factory=list)
-
-    def summary(self) -> str:
-        lines = []
-        if self.rules_fired:
-            lines.append(f"Rules: {', '.join(self.rules_fired)}")
-        if self.path:
-            lines.append(f"Path: {' -> '.join(self.path)}")
-        if self.provenance_assertions:
-            lines.append("Base Facts:")
-            for asrt in self.provenance_assertions:
-                p = asrt.provenance
-                src_info = f"source={p.source}"
-                if p.turn_id:
-                    src_info += f", turn={p.turn_id}"
-                lines.append(
-                    f"  - [{asrt.assertion_id}] ({asrt.relation.subject} {asrt.relation.predicate} {asrt.relation.object}) ({src_info})"
-                )
-        return "\n".join(lines)
-
-
-@dataclass
-class ReasonerAnswer:
-    """An individual derived answer item with its explanation."""
-    value: Any
-    explanation: Explanation
-
-
-@dataclass
-class ReasonerResult:
-    """Complete results of a query evaluation."""
-    query_goal: str
-    answers: list[ReasonerAnswer]
-    raw_response: dict[str, Any] = field(default_factory=dict)
-
-
-def find_swipl_executable() -> Optional[str]:
+def find_swipl_executable() -> str | None:
     """Locate the SWI-Prolog executable on PATH or standard directories."""
     found = shutil.which("swipl")
     if found:
@@ -120,7 +83,7 @@ class PrologReasoner:
     _workers: dict[str, PersistentPrologWorker] = {}
 
     def __init__(
-        self, swipl_path: Optional[str] = None, max_results: int = 1000
+        self, swipl_path: str | None = None, max_results: int = 1000
     ) -> None:
         self.swipl_path = swipl_path or find_swipl_executable()
         self.rules_path = Path(__file__).parent / "rules.pl"
@@ -139,13 +102,13 @@ class PrologReasoner:
     def query(
         self,
         model: OntologyModel,
-        goal_type: str | Any = "",
-        subject: Optional[str] = None,
-        predicate: Optional[str] = None,
-        object: Optional[str] = None,
-        req_key: Optional[str] = None,
-        req_val: Optional[Any] = None,
-        timeout_seconds: int = 10,
+        spec: QuerySpec | str = "",
+        subject: str | None = None,
+        predicate: str | None = None,
+        object: str | None = None,
+        req_key: str | None = None,
+        req_val: Any | None = None,
+        timeout_seconds: float = 10.0,
         max_inferences: int = 1000000,
         **kwargs: Any,
     ) -> ReasonerResult:
@@ -155,9 +118,11 @@ class PrologReasoner:
                 "SWI-Prolog (swipl) was not found. Please install SWI-Prolog to enable logic reasoning."
             )
 
-        # Support QuerySpec instance passed as goal_type
-        if hasattr(goal_type, "kind"):
-            spec = goal_type
+        if "goal_type" in kwargs:
+            spec = kwargs.pop("goal_type")
+
+        # Support QuerySpec instance passed as spec
+        if isinstance(spec, QuerySpec):
             g_type = spec.kind
             s = spec.subject or (spec.object if spec.kind == "recommend" else None)
             p = spec.predicate
@@ -168,7 +133,7 @@ class PrologReasoner:
             to = spec.timeout_seconds
             mi = spec.max_inferences
         else:
-            g_type = str(goal_type)
+            g_type = str(spec)
             s = subject
             p = predicate
             o = object
@@ -196,14 +161,14 @@ class PrologReasoner:
         self,
         model: OntologyModel,
         goal_type: str,
-        subject: Optional[str],
-        predicate: Optional[str],
-        object: Optional[str],
-        req_key: Optional[str],
-        req_val: Optional[Any],
-        timeout_seconds: int,
+        subject: str | None,
+        predicate: str | None,
+        object: str | None,
+        req_key: str | None,
+        req_val: Any | None,
+        timeout_seconds: float,
         max_inferences: int,
-        filter_attributes: Optional[dict[str, Any]] = None,
+        filter_attributes: dict[str, Any] | None = None,
     ) -> ReasonerResult:
         model_uuid = getattr(model, "uuid", str(id(model)))
         cache_key = (model_uuid, getattr(model, "version", 0))

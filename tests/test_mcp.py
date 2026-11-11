@@ -365,8 +365,9 @@ class TestMCPServer(unittest.TestCase):
         self.assertIn("error", responses[18])
 
     def test_newline_delimited_transport_and_cli_main(self):
-        from ontology_spider.mcp.__main__ import main as mcp_main
         from unittest.mock import patch
+
+        from ontology_spider.mcp.__main__ import main as mcp_main
 
         raw_in = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}}) + "\n"
         transport = FakeStreamTransport(raw_in)
@@ -559,9 +560,10 @@ class TestMCPServer(unittest.TestCase):
     @unittest.skipUnless(PrologReasoner().is_available, "swipl not installed")
     def test_mcp_prolog_backend_wall_clock_timeout(self):
         """Verify real wall-clock timeout enforcement on the Prolog subprocess backend."""
-        from ontology_spider.harness.generators import generate_chain
-        from ontology_spider.export import to_dialog
         import tempfile
+
+        from ontology_spider.export import to_dialog
+        from ontology_spider.harness.generators import generate_chain
 
         with tempfile.TemporaryDirectory() as td:
             # Generate a 1,500-node linear chain whose full ancestry search under Prolog
@@ -587,8 +589,9 @@ class TestMCPServer(unittest.TestCase):
     def test_large_chain_query_memory_bounded(self):
         """Assert 10,000-node chain query completes within memory budget (<= 100MB) returning 9,999 answers."""
         import tracemalloc
+
+        from ontology_spider.engine import QueryTimeoutError, Session
         from ontology_spider.harness.generators import generate_chain
-        from ontology_spider.engine import Session, QueryTimeoutError
         from ontology_spider.reasoning.python_backend import PythonReasoner
 
         model = generate_chain(10000)

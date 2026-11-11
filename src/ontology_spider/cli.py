@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 from ontology_spider.api import export_model, load_model
 from ontology_spider.dialog import ParseError, parse_dialog
@@ -64,7 +63,7 @@ def run_validate(file_path: str) -> int:
 
 
 def run_export(
-    file_path: str, format: str = "json", output_path: Optional[str] = None
+    file_path: str, format: str = "json", output_path: str | None = None
 ) -> int:
     """Export an ontology to JSON, .dialog, DOT, or HTML."""
     path = Path(file_path)
@@ -87,7 +86,7 @@ def run_export(
         return 3
 
 
-def run_elicit(output_path: Optional[str] = None) -> int:
+def run_elicit(output_path: str | None = None) -> int:
     """Launch a 4-stage guided elicitation session."""
     print("Ontology-Spider Guided Elicitation Session")
     print("Follow prompts to author an ontology. Type 'exit' to quit.")
@@ -121,7 +120,7 @@ def run_elicit(output_path: Optional[str] = None) -> int:
     return 0
 
 
-def run_repl(file_path: Optional[str] = None) -> int:
+def run_repl(file_path: str | None = None) -> int:
     """Launch interactive Dialog REPL with conversational frame stack."""
     print("Ontology-Spider Conversational Traversal REPL")
     print(
@@ -178,8 +177,8 @@ def run_repl(file_path: Optional[str] = None) -> int:
             if not violations:
                 print("Validation passed: 0 violations.")
             else:
-                for v in violations:
-                    print(f"  {v.summary()}")
+                for viol in violations:
+                    print(f"  {viol.summary()}")
             continue
 
         if line.lower().startswith("export "):

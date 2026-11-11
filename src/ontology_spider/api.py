@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
-from ontology_spider.dialog_runner import DialogSession
-from ontology_spider.engine import Engine, QueryResult, Session, SessionManager
+from ontology_spider.engine import Engine, QueryResult
 from ontology_spider.export import to_dialog, to_dot, to_html, to_json
 from ontology_spider.model import OntologyModel
 from ontology_spider.seam import DialogModelSource, JsonModelSource, ModelSource
 from ontology_spider.validation import OntologyValidator
 
 
-def load_model(source: Union[str, Path, ModelSource]) -> OntologyModel:
+def load_model(source: str | Path | ModelSource) -> OntologyModel:
     """Load an OntologyModel from a file path, raw string, or ModelSource adapter."""
     if isinstance(source, ModelSource):
         return source.load()

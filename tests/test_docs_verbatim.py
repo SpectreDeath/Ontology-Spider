@@ -58,7 +58,7 @@ class TestDocsVerbatim(unittest.TestCase):
         from ontology_spider.cli import build_parser
         parser = build_parser()
         subparser_actions = [
-            action for action in parser._actions 
+            action for action in parser._actions
             if action.dest == "command"
         ]
         self.assertTrue(len(subparser_actions) > 0)
@@ -66,7 +66,7 @@ class TestDocsVerbatim(unittest.TestCase):
         expected_cli_line = f"{len(subcommands)} CLI subcommands ({', '.join(subcommands)})"
         self.assertIn(expected_cli_line, text)
         self.assertIn(f"Ontology-Spider provides {len(subcommands)} CLI subcommands:", text)
-        self.assertIn("99 unit tests", text)
+        self.assertIn("105 unit tests", text)
         self.assertIn("coverage report --fail-under=90", text)
 
     def test_all_fenced_dialog_blocks_parse(self):

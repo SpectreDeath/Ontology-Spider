@@ -150,6 +150,19 @@ class TestValidation(unittest.TestCase):
         orphan_viols = [v for v in violations if v.check_type == "assumption_violation" and "Orphan instance" in v.message]
         self.assertEqual(len(orphan_viols), 0)
 
+    def test_validate_deep_chain_no_recursion_error(self):
+        """Verify that iterative algorithms in validation handle deep chains without RecursionError."""
+        model = OntologyModel(uri="urn:deep_chain")
+        prov = Provenance(source="test_deep")
+        n = 3000
+        for i in range(n):
+            model.add_assertion(Relation(f"node_{i}", SUBCLASS_OF, f"node_{i+1}"), prov)
+        model.add_assertion(Relation(SUBCLASS_OF, ACYCLIC, "true"), prov)
+
+        violations = self.validator.validate(model)
+        cycle_viols = [v for v in violations if v.check_type == "cycle_violation"]
+        self.assertEqual(len(cycle_viols), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

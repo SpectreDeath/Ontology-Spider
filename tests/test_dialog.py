@@ -1,12 +1,8 @@
-import tempfile
 import unittest
-from pathlib import Path
 
 from ontology_spider.dialog import (
     DialogAssertion,
-    DialogDoc,
     DialogEntityDecl,
-    DialogImport,
     DialogQuery,
     ParseError,
     parse_dialog,
@@ -106,7 +102,7 @@ assert feline subclass_of mammal
 
     def test_roundtrip_dialog_export_and_reparse(self):
         from ontology_spider.export import to_dialog
-        from ontology_spider.model import OntologyModel, Relation, Provenance
+        from ontology_spider.model import OntologyModel, Provenance, Relation
 
         model = OntologyModel(uri="urn:test:dialog_export_roundtrip")
         model.upsert_entity("bare_ent")

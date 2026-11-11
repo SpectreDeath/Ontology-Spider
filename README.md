@@ -58,20 +58,23 @@ Ontology-Spider is an end-to-end ontological engine in the lineage of **ASKE Dia
 - **SWI-Prolog** *(optional)*: Provides high-performance formal logic reasoning. If SWI-Prolog (`swipl`) is not on your `PATH`, Ontology-Spider automatically falls back to an integrated pure-Python graph reasoner.
 
 ### Installation
-Install in editable mode:
+Install in editable mode (with optional dev tooling):
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 ```
 *(Alternative without installation: set `PYTHONPATH=src` or `$env:PYTHONPATH="src;."` before running commands.)*
 
+When installed, the `dialog` command is available as a CLI entrypoint (identical to `python -m ontology_spider.cli` or `python -m ontology_spider`).
+
 ### Running Tests & Coverage
-The test suite contains 99 unit tests with >=90% statement coverage:
+The test suite contains 105 unit tests with >=90% statement coverage:
 ```bash
-# Run all tests
-python -m unittest discover -s tests
+# Run all tests (via pytest or unittest)
+pytest
+# or: python -m unittest discover -s tests
 
 # Check test coverage
-coverage run -m unittest discover -s tests
+coverage run -m pytest
 coverage report --fail-under=90
 ```
 
@@ -210,7 +213,7 @@ Ontology-Spider/
 │   ├── tutorial.dialog         # Getting-started tutorial corpus
 │   ├── drones.dialog           # Comprehensive UAV & subsystem benchmark
 │   └── vault_adapter.py        # Reference Seam adapter implementation
-├── tests/                      # Unit and integration test suite (99 unit tests, >=90% statement coverage)
+├── tests/                      # Unit and integration test suite (105 unit tests, >=90% statement coverage)
 └── docs/                       # Specifications and reference manuals
     ├── architecture.md         # System architecture, pipeline DAG, trust model, & deferred list
     ├── api.md                  # Python API reference

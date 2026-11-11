@@ -1,7 +1,14 @@
 import unittest
 
 from ontology_spider.dialog_runner import DialogSession
-from ontology_spider.model import Entity, OntologyModel, Provenance, Relation, SUBCLASS_OF, INSTANCE_OF
+from ontology_spider.model import (
+    INSTANCE_OF,
+    SUBCLASS_OF,
+    Entity,
+    OntologyModel,
+    Provenance,
+    Relation,
+)
 from ontology_spider.traversal import TraversalDialogueManager
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from typing import Any, Optional
+from typing import Any
 
 from ontology_spider.model import Assertion, OntologyModel
 from ontology_spider.reasoning.base import (
@@ -56,12 +56,12 @@ class PythonReasoner(Reasoner):
         model: OntologyModel,
         spec: QuerySpec | Any = "",
         goal_type: str | Any = "",
-        subject: Optional[str] = None,
-        predicate: Optional[str] = None,
-        object: Optional[str] = None,
-        req_key: Optional[str] = None,
-        req_val: Optional[Any] = None,
-        filter_attributes: Optional[dict[str, Any]] = None,
+        subject: str | None = None,
+        predicate: str | None = None,
+        object: str | None = None,
+        req_key: str | None = None,
+        req_val: Any | None = None,
+        filter_attributes: dict[str, Any] | None = None,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
         **kwargs: Any,

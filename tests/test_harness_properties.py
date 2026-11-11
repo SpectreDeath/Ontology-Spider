@@ -1,17 +1,17 @@
 import unittest
+
 from ontology_spider.harness.generators import (
     generate_chain,
-    generate_tree,
-    generate_random_dag,
-    generate_lattice,
     generate_cyclic,
+    generate_random_dag,
+    generate_tree,
 )
 from ontology_spider.harness.properties import (
-    verify_transitivity_monotonicity,
+    verify_frame_scoping_invariant,
     verify_roundtrip_dialog,
     verify_roundtrip_json,
+    verify_transitivity_monotonicity,
     verify_validation_cycle_detection,
-    verify_frame_scoping_invariant,
 )
 
 
@@ -117,8 +117,13 @@ class TestHarnessProperties(unittest.TestCase):
     def test_harness_cli_commands(self):
         import tempfile
         from pathlib import Path
+
         from ontology_spider.harness.__main__ import main as harness_main
-        from ontology_spider.harness.runner import HarnessRunner, ScenarioResult, HarnessReport
+        from ontology_spider.harness.runner import (
+            HarnessReport,
+            HarnessRunner,
+            ScenarioResult,
+        )
 
         self.assertEqual(harness_main(["parity", "--model", "examples/tutorial.dialog"]), 0)
         self.assertEqual(harness_main(["parity", "--model", "examples/missing_file.dialog"]), 1)
@@ -166,9 +171,9 @@ class TestHarnessProperties(unittest.TestCase):
             self.assertTrue(res_pl.passed)
 
     def test_dialog_roundtrip_lossless_types_and_provenance(self):
-        from ontology_spider.model import OntologyModel, Relation, Provenance, Entity
-        from ontology_spider.harness.properties import check_dialog_roundtrip_identity
         from ontology_spider.export import to_dot
+        from ontology_spider.harness.properties import check_dialog_roundtrip_identity
+        from ontology_spider.model import Entity, OntologyModel, Provenance, Relation
 
         m = OntologyModel(uri="urn:test:lossless")
         m.add_entity(Entity(

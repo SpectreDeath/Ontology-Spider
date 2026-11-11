@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import json
 import subprocess
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class PersistentPrologWorker:
@@ -17,9 +18,9 @@ class PersistentPrologWorker:
     def __init__(self, swipl_path: str, rules_path: Path) -> None:
         self.swipl_path = swipl_path
         self.rules_path = rules_path
-        self._proc: Optional[subprocess.Popen[str]] = None
+        self._proc: subprocess.Popen[str] | None = None
         self._lock = threading.Lock()
-        self._loaded_key: Optional[tuple[str, int]] = None
+        self._loaded_key: tuple[str, int] | None = None
         self._tmpdir = tempfile.TemporaryDirectory()
         atexit.register(self.close)
 
@@ -144,7 +145,7 @@ assert_facts_stream(Stream) :-
                 raise RuntimeError(f"Failed to load facts into worker: {data}")
             self._loaded_key = cache_key
 
-    def execute_goal(self, goal_str: str, max_inferences: int, timeout_seconds: int) -> dict[str, Any]:
+    def execute_goal(self, goal_str: str, max_inferences: int, timeout_seconds: float = 10.0) -> dict[str, Any]:
         with self._lock:
             proc = self._ensure_started()
             clause_str = f"active_goal(Result) :- ({goal_str})."
@@ -155,8 +156,8 @@ assert_facts_stream(Stream) :-
             })
             assert proc.stdin is not None and proc.stdout is not None
 
-            result_holder: list[Optional[str]] = [None]
-            err_holder: list[Optional[BaseException]] = [None]
+            result_holder: list[str | None] = [None]
+            err_holder: list[BaseException | None] = [None]
 
             def reader() -> None:
                 try:
@@ -187,24 +188,18 @@ assert_facts_stream(Stream) :-
 
     def _kill_proc(self) -> None:
         if self._proc is not None:
-            try:
+            with contextlib.suppress(OSError, ValueError, subprocess.SubprocessError):
                 self._proc.kill()
                 self._proc.wait(timeout=1)
-            except Exception:
-                pass
             for stream in (self._proc.stdin, self._proc.stdout, self._proc.stderr):
                 if stream is not None:
-                    try:
+                    with contextlib.suppress(OSError, ValueError):
                         stream.close()
-                    except Exception:
-                        pass
             self._proc = None
             self._loaded_key = None
 
     def close(self) -> None:
         with self._lock:
             self._kill_proc()
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 self._tmpdir.cleanup()
-            except Exception:
-                pass

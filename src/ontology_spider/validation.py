@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ontology_spider.model import (
     ACYCLIC,
@@ -51,7 +53,7 @@ class OntologyValidator:
     """Verifies domain/range, disjointness, acyclicity, and configurable assumptions."""
 
     def __init__(
-        self, custom_assumptions: Optional[list[AssumptionDefinition]] = None
+        self, custom_assumptions: list[AssumptionDefinition] | None = None
     ) -> None:
         self.assumptions: list[AssumptionDefinition] = [
             AssumptionDefinition(
@@ -81,18 +83,22 @@ class OntologyValidator:
 
         superclass_cache: dict[str, set[str]] = {}
 
-        def get_all_superclasses(c: str, in_progress: Optional[set[str]] = None) -> set[str]:
+        def get_all_superclasses(c: str) -> set[str]:
             if c in superclass_cache:
                 return superclass_cache[c]
-            if in_progress is None:
-                in_progress = set()
-            in_progress.add(c)
-            supers = set()
-            for parent in subclass_parents.get(c, set()):
-                supers.add(parent)
-                if parent not in in_progress:
-                    supers.update(get_all_superclasses(parent, in_progress))
-            in_progress.remove(c)
+            supers: set[str] = set()
+            queue = deque(subclass_parents.get(c, ()))
+            visited = set(queue)
+            while queue:
+                curr = queue.popleft()
+                supers.add(curr)
+                if curr in superclass_cache:
+                    supers.update(superclass_cache[curr])
+                else:
+                    for parent in subclass_parents.get(curr, ()):
+                        if parent not in visited:
+                            visited.add(parent)
+                            queue.append(parent)
             superclass_cache[c] = supers
             return supers
 
@@ -183,10 +189,10 @@ class OntologyValidator:
         def get_assertions_to_ancestor(start: str, target: str) -> list[str]:
             if start == target:
                 return []
-            queue: list[tuple[str, list[str]]] = [(start, [])]
+            queue: deque[tuple[str, list[str]]] = deque([(start, [])])
             visited: set[str] = {start}
             while queue:
-                curr, path_aids = queue.pop(0)
+                curr, path_aids = queue.popleft()
                 if curr == target:
                     return path_aids
                 for a in model.query(subject=curr):
@@ -239,7 +245,7 @@ class OntologyValidator:
                     (asrt.relation.object, asrt.assertion_id)
                 )
 
-            # Tarjan's Strongly Connected Components (SCC) algorithm O(V + E)
+            # Tarjan's Strongly Connected Components (SCC) algorithm O(V + E) - Iterative
             index = 0
             indices: dict[str, int] = {}
             lowlinks: dict[str, int] = {}
@@ -252,35 +258,47 @@ class OntologyValidator:
                 for tgt, _ in targets:
                     all_nodes.add(tgt)
 
-            def strongconnect(v: str) -> None:
-                nonlocal index
-                indices[v] = index
-                lowlinks[v] = index
-                index += 1
-                stack.append(v)
-                on_stack.add(v)
-
-                for w, _ in graph.get(v, []):
-                    if w not in indices:
-                        strongconnect(w)
-                        lowlinks[v] = min(lowlinks[v], lowlinks[w])
-                    elif w in on_stack:
-                        lowlinks[v] = min(lowlinks[v], indices[w])
-
-                if lowlinks[v] == indices[v]:
-                    scc = []
-                    while True:
-                        w = stack.pop()
-                        on_stack.remove(w)
-                        scc.append(w)
-                        if w == v:
-                            break
-                    if len(scc) > 1 or any(tgt == v for tgt, _ in graph.get(v, [])):
-                        sccs.append(scc)
-
             for node in all_nodes:
-                if node not in indices:
-                    strongconnect(node)
+                if node in indices:
+                    continue
+                call_stack: list[tuple[str, int]] = [(node, 0)]
+                indices[node] = index
+                lowlinks[node] = index
+                index += 1
+                stack.append(node)
+                on_stack.add(node)
+
+                while call_stack:
+                    v, pi = call_stack[-1]
+                    neighbors = graph.get(v, [])
+                    if pi < len(neighbors):
+                        call_stack[-1] = (v, pi + 1)
+                        w = neighbors[pi][0]
+                        if w not in indices:
+                            indices[w] = index
+                            lowlinks[w] = index
+                            index += 1
+                            stack.append(w)
+                            on_stack.add(w)
+                            call_stack.append((w, 0))
+                        elif w in on_stack:
+                            lowlinks[v] = min(lowlinks[v], indices[w])
+                    else:
+                        call_stack.pop()
+                        if call_stack:
+                            p_node = call_stack[-1][0]
+                            lowlinks[p_node] = min(lowlinks[p_node], lowlinks[v])
+
+                        if lowlinks[v] == indices[v]:
+                            scc: list[str] = []
+                            while True:
+                                popped_w = stack.pop()
+                                on_stack.remove(popped_w)
+                                scc.append(popped_w)
+                                if popped_w == v:
+                                    break
+                            if len(scc) > 1 or any(tgt == v for tgt, _ in graph.get(v, [])):
+                                sccs.append(scc)
 
             # For each cyclic SCC, extract a witness cycle
             for scc in sccs:
@@ -288,12 +306,12 @@ class OntologyValidator:
                 # Find a simple cycle inside scc
                 start_node = scc[0]
                 parent_edge: dict[str, tuple[str, str]] = {}  # node -> (parent, asrt_id)
-                queue = [start_node]
+                queue: deque[str] = deque([start_node])
                 cycle_edges: list[str] = []
                 found = False
 
                 while queue and not found:
-                    curr = queue.pop(0)
+                    curr = queue.popleft()
                     for nxt, aid in graph.get(curr, []):
                         if nxt not in scc_set:
                             continue

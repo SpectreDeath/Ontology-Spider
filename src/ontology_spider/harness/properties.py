@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import json
+
 from ontology_spider.export import to_dialog, to_json
-from ontology_spider.model import OntologyModel, Relation, Provenance, SUBCLASS_OF, INSTANCE_OF
+from ontology_spider.model import (
+    INSTANCE_OF,
+    SUBCLASS_OF,
+    OntologyModel,
+)
 from ontology_spider.reasoning.base import QuerySpec
 from ontology_spider.reasoning.python_backend import PythonReasoner
 from ontology_spider.seam import DialogModelSource

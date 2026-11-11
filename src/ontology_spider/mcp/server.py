@@ -7,14 +7,15 @@ tools and resources without external dependencies.
 from __future__ import annotations
 
 import json
-import os
+import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional, TextIO
+from typing import Any
 
-from ontology_spider.engine import Engine, SessionManager
+from ontology_spider.engine import Engine
 from ontology_spider.export import to_dialog, to_dot, to_html, to_json
 from ontology_spider.mcp.transport import StdioTransport
-from ontology_spider.model import OntologyModel, Relation
+from ontology_spider.model import OntologyModel
 from ontology_spider.seam import DialogModelSource
 from ontology_spider.traversal import TraversalDialogueManager
 from ontology_spider.validation import OntologyValidator
@@ -25,15 +26,15 @@ class MCPServer:
 
     def __init__(
         self,
-        transport: Optional[StdioTransport] = None,
+        transport: StdioTransport | None = None,
         read_only: bool = False,
-        root_dir: Optional[Path] = None,
+        root_dir: Path | None = None,
         max_sessions: int = 32,
         max_assertions_per_session: int = 50_000,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
-        backend: Optional[str] = None,
-        preload_model_path: Optional[Path] = None,
+        backend: str | None = None,
+        preload_model_path: Path | None = None,
     ) -> None:
         self.transport = transport or StdioTransport()
         self.read_only = read_only
@@ -74,7 +75,7 @@ class MCPServer:
             )
             self.dialogue_managers["default"] = session.traversal
 
-    def _get_reasoner(self) -> Optional[Any]:
+    def _get_reasoner(self) -> Any | None:
         if self.backend == "python":
             from ontology_spider.reasoning.python_backend import PythonReasoner
             return PythonReasoner()
@@ -98,6 +99,7 @@ class MCPServer:
             try:
                 msg = self.transport.read_message()
             except Exception as e:
+                print(f"Transport read error: {e}", file=sys.stderr)
                 break
             if msg is None:
                 break
@@ -168,7 +170,6 @@ class MCPServer:
         req_id = params.get("requestId")
         if req_id is not None:
             self._cancelled_requests.add(req_id)
-        return None
 
     def _handle_ping(self, params: dict[str, Any]) -> dict[str, Any]:
         return {}
@@ -425,9 +426,10 @@ class MCPServer:
         if not sid:
             raise ValueError("session_id is required")
 
-        session = self.sessions.get_session(sid)
-        if not session:
+        found_session = self.sessions.get_session(sid)
+        if not found_session:
             raise ValueError(f"Session not found: {sid}")
+        session = found_session
         mgr = self.dialogue_managers.setdefault(sid, session.traversal)
 
         if name == "model_load":
@@ -535,8 +537,12 @@ class MCPServer:
                 "mimeType": "application/json",
             })
         examples_dir = self.root_dir / "examples"
+        if not examples_dir.is_dir():
+            pkg_examples = Path(__file__).resolve().parent.parent.parent.parent / "examples"
+            if pkg_examples.is_dir():
+                examples_dir = pkg_examples
         if examples_dir.is_dir():
-            for f in examples_dir.glob("*.dialog"):
+            for f in sorted(examples_dir.glob("*.dialog")):
                 resources.append({
                     "uri": f"ontology://examples/{f.stem}",
                     "name": f"Example ontology: {f.name}",
@@ -547,7 +553,11 @@ class MCPServer:
     def _handle_resources_read(self, params: dict[str, Any]) -> dict[str, Any]:
         uri = params.get("uri", "")
         if uri == "ontology://docs/language-reference":
-            ref_path = self.root_dir / "docs" / "semantics.md"
+            ref_path = self.root_dir / "docs" / "language_reference.md"
+            if not ref_path.is_file():
+                pkg_doc = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "language_reference.md"
+                if pkg_doc.is_file():
+                    ref_path = pkg_doc
             text = ref_path.read_text(encoding="utf-8") if ref_path.is_file() else "Language reference not found."
             return {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": text}]}
 
@@ -559,10 +569,25 @@ class MCPServer:
             return {"contents": [{"uri": uri, "mimeType": "application/json", "text": to_json(sess.model)}]}
 
         if uri.startswith("ontology://examples/"):
-            stem = uri.split("/")[3]
-            f = self.root_dir / "examples" / f"{stem}.dialog"
-            if not f.is_file():
-                raise ValueError(f"Example not found: {stem}")
+            parts = uri.split("/")
+            if len(parts) < 4:
+                raise ValueError(f"Invalid resource URI: {uri}")
+            stem = parts[3]
+            if ".." in stem or "/" in stem or "\\" in stem:
+                raise PermissionError(f"Access denied: invalid stem '{stem}'")
+            rel_candidate = Path("examples") / f"{stem}.dialog"
+            try:
+                safe_f = self._resolve_safe_path(str(rel_candidate))
+            except PermissionError:
+                safe_f = None
+            if safe_f and safe_f.is_file():
+                f = safe_f
+            else:
+                pkg_f = Path(__file__).resolve().parent.parent.parent.parent / "examples" / f"{stem}.dialog"
+                if pkg_f.is_file():
+                    f = pkg_f
+                else:
+                    raise ValueError(f"Example not found: {stem}")
             return {"contents": [{"uri": uri, "mimeType": "text/plain", "text": f.read_text(encoding="utf-8")}]}
 
         raise ValueError(f"Unknown resource URI: {uri}")

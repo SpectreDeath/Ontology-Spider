@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from ontology_spider.model import Assertion, OntologyModel
 
@@ -78,11 +79,11 @@ class ReasonerResult:
 class QuerySpec:
     """Standardized representation of a query passed to any reasoner backend."""
     kind: str  # "lookup", "ancestors", "transitive", "recommend", "filter", "pattern"
-    subject: Optional[str] = None
-    predicate: Optional[str] = None
-    object: Optional[str] = None
-    filter_key: Optional[str] = None
-    filter_val: Optional[Any] = None
+    subject: str | None = None
+    predicate: str | None = None
+    object: str | None = None
+    filter_key: str | None = None
+    filter_val: Any | None = None
     filter_attributes: Mapping[str, Any] = field(default_factory=dict)
     timeout_seconds: float = 10.0
     max_inferences: int = 1_000_000

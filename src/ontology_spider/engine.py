@@ -6,11 +6,10 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Optional, Union
+from typing import Any
 
 from ontology_spider.dialog import (
     DialogAssertion,
-    DialogDoc,
     DialogEntityDecl,
     DialogImport,
     DialogQuery,
@@ -18,7 +17,6 @@ from ontology_spider.dialog import (
 )
 from ontology_spider.model import (
     Assertion,
-    Entity,
     OntologyModel,
     Provenance,
     Relation,
@@ -30,7 +28,6 @@ from ontology_spider.reasoning.base import (
     QueryTimeoutError,
     Reasoner,
     ReasonerAnswer,
-    ReasonerResult,
 )
 from ontology_spider.reasoning.python_backend import PythonReasoner
 from ontology_spider.seam import load_imported_model
@@ -45,7 +42,7 @@ class QueryResult:
     summary: str
     answers: list[dict[str, Any]] = field(default_factory=list)
     raw_answers: list[ReasonerAnswer] = field(default_factory=list)
-    explanation: Optional[Explanation] = None
+    explanation: Explanation | None = None
 
     def __getitem__(self, key: str) -> Any:
         if key == "query":
@@ -81,10 +78,10 @@ class Session:
 
     def __init__(
         self,
-        session_id: Optional[str] = None,
-        model: Optional[OntologyModel] = None,
-        reasoner: Optional[Reasoner] = None,
-        base_dir: Optional[Path] = None,
+        session_id: str | None = None,
+        model: OntologyModel | None = None,
+        reasoner: Reasoner | None = None,
+        base_dir: Path | None = None,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
     ) -> None:
@@ -108,7 +105,7 @@ class Session:
         )
         self.turn_counter: int = 0
         self.history: list[QueryResult] = []
-        self.last_query_result: Optional[QueryResult] = None
+        self.last_query_result: QueryResult | None = None
 
     def execute(self, text: str) -> list[QueryResult]:
         """Execute one or more .dialog statements."""
@@ -126,7 +123,7 @@ class Session:
 
     def execute_statement(
         self,
-        stmt: Union[DialogImport, DialogEntityDecl, DialogAssertion, DialogQuery],
+        stmt: DialogImport | DialogEntityDecl | DialogAssertion | DialogQuery,
     ) -> QueryResult:
         self.turn_counter += 1
         turn_id = f"turn_{self.turn_counter}"
@@ -207,7 +204,7 @@ class Session:
         return self.model.upsert_entity(entity_id, **attributes)
 
     def retract_assertion(self, assertion_id: str) -> bool:
-        return self.model.retract_assertion(assertion_id)
+        return self.model.retract_assertion(assertion_id) is not None
 
     def run_dialog(self, dialog_text: str) -> QueryResult:
         results = self.execute(dialog_text)
@@ -301,9 +298,9 @@ class SessionManager:
 
     def create_session(
         self,
-        session_id: Optional[str] = None,
-        model: Optional[OntologyModel] = None,
-        reasoner: Optional[Reasoner] = None,
+        session_id: str | None = None,
+        model: OntologyModel | None = None,
+        reasoner: Reasoner | None = None,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
         **kwargs: Any,
@@ -322,9 +319,9 @@ class SessionManager:
 
     def open_session(
         self,
-        session_id: Optional[str] = None,
-        model: Optional[OntologyModel] = None,
-        reasoner: Optional[Reasoner] = None,
+        session_id: str | None = None,
+        model: OntologyModel | None = None,
+        reasoner: Reasoner | None = None,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
         **kwargs: Any,
@@ -338,7 +335,7 @@ class SessionManager:
             **kwargs,
         )
 
-    def get_session(self, session_id: str) -> Optional[Session]:
+    def get_session(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
 
     def close_session(self, session_id: str) -> bool:
@@ -353,7 +350,7 @@ class Engine:
 
     def __init__(self) -> None:
         self.session_manager = SessionManager()
-        self._prolog_available: Optional[bool] = None
+        self._prolog_available: bool | None = None
 
     @property
     def active_backend_name(self) -> str:

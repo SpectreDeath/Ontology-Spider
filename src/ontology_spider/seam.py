@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any
 
 from ontology_spider.dialog import (
     DialogAssertion,
@@ -14,7 +14,6 @@ from ontology_spider.dialog import (
     parse_dialog,
 )
 from ontology_spider.model import (
-    Entity,
     OntologyModel,
     Provenance,
     Relation,
@@ -26,8 +25,8 @@ class ImportCycleError(Exception):
 
 
 def load_imported_model(
-    import_path: Union[str, Path],
-    base_dir: Optional[Path] = None,
+    import_path: str | Path,
+    base_dir: Path | None = None,
     import_chain: tuple[Path, ...] = (),
 ) -> OntologyModel:
     """Resolve and load an imported model (.json or .dialog) with cycle detection."""
@@ -64,7 +63,7 @@ class ModelSource(ABC):
 class JsonModelSource(ModelSource):
     """Loads an ontology from a JSON graph file or raw JSON string."""
 
-    def __init__(self, source: Union[str, Path]) -> None:
+    def __init__(self, source: str | Path) -> None:
         self.source = source
 
     def load(self) -> OntologyModel:
@@ -84,14 +83,14 @@ class JsonModelSource(ModelSource):
 
 class DialogModelSource(ModelSource):
     """Loads an ontology directly from a .dialog authoring file or script.
-    
+
     Dogfoods the Dialog language as an authoring format for Track 1b.
     """
 
     def __init__(
         self,
-        source: Union[str, Path],
-        base_dir: Union[str, Path, None] = None,
+        source: str | Path,
+        base_dir: str | Path | None = None,
         import_chain: tuple[Path, ...] = (),
     ) -> None:
         self.source = source

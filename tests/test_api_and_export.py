@@ -1,7 +1,14 @@
 import unittest
 
 from ontology_spider.api import export_model, load_model, run_query, validate_model
-from ontology_spider.model import Entity, OntologyModel, Provenance, Relation, SUBCLASS_OF, INSTANCE_OF
+from ontology_spider.model import (
+    INSTANCE_OF,
+    SUBCLASS_OF,
+    Entity,
+    OntologyModel,
+    Provenance,
+    Relation,
+)
 
 
 class TestApiAndExport(unittest.TestCase):

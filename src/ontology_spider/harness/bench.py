@@ -6,8 +6,11 @@ import time
 from typing import Any
 
 from ontology_spider.engine import Session
-from ontology_spider.harness.generators import generate_chain, generate_lattice, generate_tree
-from ontology_spider.model import OntologyModel
+from ontology_spider.harness.generators import (
+    generate_chain,
+    generate_lattice,
+    generate_tree,
+)
 from ontology_spider.validation import OntologyValidator
 
 
@@ -60,8 +63,8 @@ def run_benchmarks() -> dict[str, Any]:
     results["lattice_20_ancestors_p50_ms"] = round(latencies[len(latencies) // 2], 2)
 
     # 5. Python query on 10k assertions (p50 < 5 ms)
-    from ontology_spider.reasoning.python_backend import PythonReasoner
     from ontology_spider.reasoning.base import QuerySpec
+    from ontology_spider.reasoning.python_backend import PythonReasoner
     chain_10k = generate_chain(10000)
     py_reasoner = PythonReasoner()
     spec = QuerySpec("lookup", subject="c_5000")

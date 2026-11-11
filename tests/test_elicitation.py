@@ -1,7 +1,7 @@
 import unittest
 
-from ontology_spider.elicitation import ElicitationManager, ElicitationState
-from ontology_spider.model import SUBCLASS_OF, INSTANCE_OF, DISJOINT_WITH
+from ontology_spider.elicitation import ElicitationManager
+from ontology_spider.model import DISJOINT_WITH, SUBCLASS_OF
 
 
 class TestElicitation(unittest.TestCase):
@@ -259,6 +259,39 @@ class TestElicitation(unittest.TestCase):
         final = manager.handle_input("done")
         self.assertIn("Elicitation completed", final)
 
+    def test_amend_instance_with_downstream_dependency(self):
+        """Amending an instance assertion should retract its assertion and invalidate downstream turns using that symbol."""
+        manager = ElicitationManager()
+        manager.start()
+        manager.step("Robotics")
+        manager.step("done")  # Skip competency
+        manager.step("done")  # Skip classes
+        manager.step("done")  # Skip relations
+
+        # Step 1: drone1 instance_of quadcopter
+        manager.step("drone1 instance_of quadcopter")
+        manager.step("y")
+        turn_inst1 = manager.turns[-1].turn_id
+
+        # Step 2: drone1 carries payload1
+        manager.step("drone1 carries payload1")
+        manager.step("y")
+        turn_inst2 = manager.turns[-1].turn_id
+
+        # Assertions present
+        self.assertEqual(len(manager.model.query(subject="drone1")), 2)
+
+        # Amend turn_inst1
+        amend_msg = manager.amend_turn(turn_inst1, "drone1 instance_of heavy_lifter [max_kg=50]")
+        self.assertIn("retracted", amend_msg.lower())
+        self.assertIn("re-confirmation required", amend_msg.lower())
+        self.assertEqual(len(manager.pending_reconfirmations), 1)
+        self.assertEqual(manager.pending_reconfirmations[0].turn_id, turn_inst2)
+
+        # Reconfirm downstream turn
+        conf_prompt = manager.handle_input("y")
+        self.assertIn("re-confirmed", conf_prompt.lower())
+        self.assertEqual(len(manager.pending_reconfirmations), 0)
 
 
 if __name__ == "__main__":

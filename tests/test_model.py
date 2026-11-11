@@ -1,17 +1,16 @@
 import unittest
+
 from ontology_spider.model import (
-    Entity,
-    Relation,
-    Provenance,
-    Assertion,
-    OntologyModel,
-    INSTANCE_OF,
-    SUBCLASS_OF,
-    DOMAIN,
-    RANGE,
-    DISJOINT_WITH,
     ACYCLIC,
     BUILTIN_SCHEMA_PREDICATES,
+    DISJOINT_WITH,
+    DOMAIN,
+    INSTANCE_OF,
+    RANGE,
+    SUBCLASS_OF,
+    OntologyModel,
+    Provenance,
+    Relation,
 )
 
 

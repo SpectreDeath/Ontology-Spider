@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 
 class ParseError(Exception):
@@ -52,13 +51,13 @@ class DialogAssertion:
 @dataclass(frozen=True)
 class DialogQuery:
     kind: str  # "lookup", "transitive", "ancestors", "pattern", "filter", "explain", "recommend"
-    subject: Optional[str] = None
-    predicate: Optional[str] = None
-    object: Optional[str] = None
-    filter_key: Optional[str] = None
-    filter_val: Optional[str] = None
+    subject: str | None = None
+    predicate: str | None = None
+    object: str | None = None
+    filter_key: str | None = None
+    filter_val: str | None = None
     filter_attributes: dict[str, Any] = field(default_factory=dict)
-    subquery: Optional[DialogQuery] = None
+    subquery: DialogQuery | None = None
     raw_text: str = ""
     line_num: int = 1
 
@@ -68,7 +67,7 @@ class DialogDoc:
     uri: str
     imports: list[DialogImport] = field(default_factory=list)
     statements: list[
-        Union[DialogImport, DialogEntityDecl, DialogAssertion, DialogQuery]
+        DialogImport | DialogEntityDecl | DialogAssertion | DialogQuery
     ] = field(default_factory=list)
 
 
@@ -133,7 +132,7 @@ def _parse_attributes(attr_str: str, line_num: int) -> dict[str, Any]:
     # Tokenize comma-separated items respecting quotes
     items = []
     current: list[str] = []
-    in_quote: Optional[str] = None
+    in_quote: str | None = None
     escaped = False
 
     for ch in content:
@@ -197,9 +196,7 @@ def parse_dialog(text: str) -> DialogDoc:
     lines = text.splitlines()
     uri = "urn:dialog:unnamed"
     imports: list[DialogImport] = []
-    statements: list[Union[DialogImport, DialogAssertion, DialogQuery]] = []
-
-    header_found = False
+    statements: list[DialogImport | DialogEntityDecl | DialogAssertion | DialogQuery] = []
 
     for idx, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
@@ -211,7 +208,6 @@ def parse_dialog(text: str) -> DialogDoc:
         if line.startswith("dialog ") or line.startswith("ontology "):
             parts = line.split(maxsplit=1)
             uri = parts[1].strip()
-            header_found = True
             continue
 
         # Import statement: import <path> or import "<path>"
@@ -232,11 +228,11 @@ def parse_dialog(text: str) -> DialogDoc:
         # Entity statement: entity <id> [attr=val, ...]
         if line.startswith("entity "):
             body = line[7:].strip()
-            attrs: dict[str, Any] = {}
+            ent_attrs: dict[str, Any] = {}
             if "[" in body and body.endswith("]"):
                 main_part, attr_part = body.rsplit("[", 1)
                 attr_part = "[" + attr_part
-                attrs = _parse_attributes(attr_part, idx)
+                ent_attrs = _parse_attributes(attr_part, idx)
                 body = main_part.strip()
             ent_id = body.strip()
             if not ent_id:
@@ -248,7 +244,7 @@ def parse_dialog(text: str) -> DialogDoc:
             statements.append(
                 DialogEntityDecl(
                     entity_id=ent_id,
-                    attributes=attrs,
+                    attributes=ent_attrs,
                     line_num=idx,
                 )
             )
@@ -259,11 +255,11 @@ def parse_dialog(text: str) -> DialogDoc:
         if line.startswith("assert "):
             body = line[7:].strip()
             # Check for attributes block at end
-            attrs: dict[str, Any] = {}
+            asrt_attrs: dict[str, Any] = {}
             if "[" in body and body.endswith("]"):
                 main_part, attr_part = body.rsplit("[", 1)
                 attr_part = "[" + attr_part
-                attrs = _parse_attributes(attr_part, idx)
+                asrt_attrs = _parse_attributes(attr_part, idx)
                 body = main_part.strip()
 
             tokens = body.split()
@@ -277,7 +273,7 @@ def parse_dialog(text: str) -> DialogDoc:
                 subject=tokens[0],
                 predicate=tokens[1],
                 object=tokens[2],
-                attributes=attrs,
+                attributes=asrt_attrs,
                 line_num=idx,
             )
             statements.append(asrt)
@@ -290,9 +286,9 @@ def parse_dialog(text: str) -> DialogDoc:
             if rest:
                 sub_line = rest if rest.startswith("query ") else f"query {rest}"
                 sub_doc = parse_dialog(f"dialog {uri}\n{sub_line}")
-                for s in sub_doc.statements:
-                    if isinstance(s, DialogQuery):
-                        subquery = s
+                for sub_stmt in sub_doc.statements:
+                    if isinstance(sub_stmt, DialogQuery):
+                        subquery = sub_stmt
                         break
             statements.append(
                 DialogQuery(
@@ -320,7 +316,7 @@ def parse_dialog(text: str) -> DialogDoc:
             else:
                 clean_body = query_body
 
-            parsed_query: Optional[DialogQuery] = None
+            parsed_query: DialogQuery | None = None
 
             # Pattern 1: what is <X>
             m_what_is = re.match(r"^what\s+is\s+(\S+)$", clean_body, re.IGNORECASE)
@@ -397,12 +393,12 @@ def parse_dialog(text: str) -> DialogDoc:
 
             # Pattern 5: general triple pattern query: <subject> <predicate> <object>
             elif len(q_tokens := clean_body.split()) == 3:
-                s, p, o = q_tokens
+                q_s, q_p, q_o = q_tokens
                 parsed_query = DialogQuery(
                     kind="pattern",
-                    subject=None if s in ("?", "*", "_") else s,
-                    predicate=None if p in ("?", "*", "_") else p,
-                    object=None if o in ("?", "*", "_") else o,
+                    subject=None if q_s in ("?", "*", "_") else q_s,
+                    predicate=None if q_p in ("?", "*", "_") else q_p,
+                    object=None if q_o in ("?", "*", "_") else q_o,
                     raw_text=line,
                     line_num=idx,
                 )

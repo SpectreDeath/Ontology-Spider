@@ -5,11 +5,10 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from ontology_spider.dialog import (
     DialogAssertion,
-    DialogDoc,
     DialogEntityDecl,
     DialogImport,
     DialogQuery,
@@ -17,7 +16,6 @@ from ontology_spider.dialog import (
 )
 from ontology_spider.model import (
     Assertion,
-    Entity,
     OntologyModel,
     Provenance,
     Relation,
@@ -30,7 +28,7 @@ from ontology_spider.prolog.reasoner import (
     ReasonerResult,
 )
 from ontology_spider.reasoning.base import QuerySpec
-from ontology_spider.seam import DialogModelSource, JsonModelSource, load_imported_model
+from ontology_spider.seam import load_imported_model
 
 
 @dataclass
@@ -39,7 +37,7 @@ class DialogTurnResult:
     statement_type: str  # "import", "assertion", "query", "explain"
     summary_text: str
     answers: list[ReasonerAnswer] = field(default_factory=list)
-    raw_query: Optional[DialogQuery] = None
+    raw_query: DialogQuery | None = None
 
 
 class DialogSession:
@@ -47,9 +45,9 @@ class DialogSession:
 
     def __init__(
         self,
-        model: Optional[OntologyModel] = None,
-        reasoner: Optional[Any] = None,
-        base_dir: Optional[Path] = None,
+        model: OntologyModel | None = None,
+        reasoner: Any | None = None,
+        base_dir: Path | None = None,
         allow_degraded_fallback: bool = True,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
@@ -61,12 +59,12 @@ class DialogSession:
         self.timeout_seconds = timeout_seconds
         self.max_inferences = max_inferences
         self.turn_counter: int = 0
-        self.last_query_result: Optional[ReasonerResult] = None
+        self.last_query_result: ReasonerResult | None = None
         self.history: list[DialogTurnResult] = []
 
     def execute_statement(
         self,
-        stmt: Union[DialogImport, DialogEntityDecl, DialogAssertion, DialogQuery],
+        stmt: DialogImport | DialogEntityDecl | DialogAssertion | DialogQuery,
     ) -> DialogTurnResult:
         self.turn_counter += 1
         turn_id = f"turn_{self.turn_counter}"
@@ -150,19 +148,19 @@ class DialogSession:
     def _execute_degraded_query(self, query: DialogQuery) -> ReasonerResult:
         answers: list[ReasonerAnswer] = []
         if query.kind == "ancestors":
-            target = query.subject
-            visited: set[str] = {target}
-            queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
-            while queue:
-                curr, path, asrts = queue.popleft()
+            target = query.subject or ""
+            anc_visited: set[str] = {target}
+            anc_queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
+            while anc_queue:
+                curr, path, asrts = anc_queue.popleft()
                 for pred in ("subclass_of", "instance_of"):
                     for a in self.model.query(subject=curr, predicate=pred):
                         obj = a.relation.object
-                        if obj not in visited:
-                            visited.add(obj)
+                        if obj not in anc_visited:
+                            anc_visited.add(obj)
                             new_path = path + [obj] if len(path) < 50 else path
                             new_asrts = asrts + [a] if len(asrts) < 50 else asrts
-                            queue.append((obj, new_path, new_asrts))
+                            anc_queue.append((obj, new_path, new_asrts))
                             answers.append(
                                 ReasonerAnswer(
                                     value=obj,
@@ -177,19 +175,19 @@ class DialogSession:
             return ReasonerResult(query_goal=f"ancestors({target})", answers=answers)
 
         if query.kind == "transitive":
-            target = query.subject
-            pred = query.predicate
-            visited: set[str] = {target}
-            queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
-            while queue:
-                curr, path, asrts = queue.popleft()
+            target = query.subject or ""
+            pred = query.predicate or ""
+            trans_visited: set[str] = {target}
+            trans_queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
+            while trans_queue:
+                curr, path, asrts = trans_queue.popleft()
                 for a in self.model.query(subject=curr, predicate=pred):
                     obj = a.relation.object
-                    if obj not in visited:
-                        visited.add(obj)
+                    if obj not in trans_visited:
+                        trans_visited.add(obj)
                         new_path = path + [obj] if len(path) < 50 else path
                         new_asrts = asrts + [a] if len(asrts) < 50 else asrts
-                        queue.append((obj, new_path, new_asrts))
+                        trans_queue.append((obj, new_path, new_asrts))
                         answers.append(
                             ReasonerAnswer(
                                 value=obj,
@@ -227,14 +225,14 @@ class DialogSession:
         if query.kind == "recommend":
             cls_name = query.object or query.subject or ""
             target_classes = {cls_name}
-            queue = [cls_name]
-            while queue:
-                curr = queue.pop(0)
-                for a in self.model.query(predicate="subclass_of", object=curr):
+            rec_queue: deque[str] = deque([cls_name])
+            while rec_queue:
+                curr_cls = rec_queue.popleft()
+                for a in self.model.query(predicate="subclass_of", object=curr_cls):
                     sub = a.relation.subject
                     if sub not in target_classes:
                         target_classes.add(sub)
-                        queue.append(sub)
+                        rec_queue.append(sub)
 
             for tc in target_classes:
                 for a in self.model.query(predicate="instance_of", object=tc):
@@ -430,16 +428,18 @@ class DialogSession:
         if query.kind == "filter":
             # Match assertions by predicate and attribute
             matching: list[Assertion] = []
+            fkey = query.filter_key or ""
+            fval = query.filter_val
             for asrt in self.model.query(predicate=query.predicate):
-                val = asrt.attributes.get(query.filter_key)
-                if val is not None and str(val) == str(query.filter_val):
+                val = asrt.attributes.get(fkey)
+                if val is not None and str(val) == str(fval):
                     matching.append(asrt)
                     continue
                 # Check entity attributes as well
                 sub_ent = self.model.get_entity(asrt.relation.subject)
                 if sub_ent:
-                    ent_val = sub_ent.attributes.get(query.filter_key)
-                    if ent_val is not None and str(ent_val) == str(query.filter_val):
+                    ent_val = sub_ent.attributes.get(fkey)
+                    if ent_val is not None and str(ent_val) == str(fval):
                         matching.append(asrt)
 
             answers = [
@@ -509,7 +509,7 @@ class DialogSession:
             results.append(self.execute_statement(stmt))
         return results
 
-    def run_file(self, path: Union[str, Path]) -> list[DialogTurnResult]:
+    def run_file(self, path: str | Path) -> list[DialogTurnResult]:
         """Execute a dialog script from file."""
         file_path = Path(path)
         text = file_path.read_text(encoding="utf-8")

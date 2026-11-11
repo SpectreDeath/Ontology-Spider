@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from ontology_spider.dialog import DialogQuery, parse_dialog
 from ontology_spider.dialog_runner import DialogSession, DialogTurnResult
 from ontology_spider.model import OntologyModel
-from ontology_spider.prolog.reasoner import PrologReasoner, ReasonerAnswer
+from ontology_spider.prolog.reasoner import PrologReasoner
+from ontology_spider.reasoning.base import ReasonerAnswer, ReasonerResult
 
 
 @dataclass
 class TraversalFrame:
     """An active conversational frame tracking focus entity, constraints, and query goal."""
     frame_id: str
-    focus_entity: Optional[str] = None
+    focus_entity: str | None = None
     active_constraints: dict[str, str] = field(default_factory=dict)
-    query_goal: Optional[str] = None
+    query_goal: str | None = None
     last_answers: list[ReasonerAnswer] = field(default_factory=list)
     status: str = "active"  # "active", "completed", "aborted"
 
@@ -28,7 +29,7 @@ class TraversalDialogueManager:
     def __init__(
         self,
         model: OntologyModel,
-        reasoner: Optional[Any] = None,
+        reasoner: Any | None = None,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
     ) -> None:
@@ -49,7 +50,7 @@ class TraversalDialogueManager:
         self._push_frame(focus_entity=None, constraints={})
 
     def _push_frame(
-        self, focus_entity: Optional[str], constraints: dict[str, str]
+        self, focus_entity: str | None, constraints: dict[str, str]
     ) -> TraversalFrame:
         self._frame_counter += 1
         frame = TraversalFrame(
@@ -76,7 +77,7 @@ class TraversalDialogueManager:
             )
         return "\n".join(lines)
 
-    def set_focus(self, entity_id: str, constraints: Optional[dict[str, str]] = None) -> str:
+    def set_focus(self, entity_id: str, constraints: dict[str, str] | None = None) -> str:
         """Push a new subdialogue frame focusing on a specific entity."""
         active_constraints = dict(self.current_frame.active_constraints)
         if constraints:
@@ -178,7 +179,6 @@ class TraversalDialogueManager:
                 raw_query=result.raw_query,
             )
             if self.session.last_query_result:
-                from ontology_spider.reasoning.base import ReasonerResult
                 self.session.last_query_result = ReasonerResult(
                     query_goal=self.session.last_query_result.query_goal,
                     answers=filtered_answers,

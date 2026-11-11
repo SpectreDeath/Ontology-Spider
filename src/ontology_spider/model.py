@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Any, Mapping, Optional
+from typing import Any
 
 # Canonical built-in schema relation vocabulary
 INSTANCE_OF = "instance_of"
@@ -84,7 +85,7 @@ class Provenance:
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
-    turn_id: Optional[str] = None
+    turn_id: str | None = None
     parent_turn_ids: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -137,7 +138,7 @@ class Assertion:
         )
 
 
-def generate_assertion_id(relation: Relation, source: str, turn_id: Optional[str] = None) -> str:
+def generate_assertion_id(relation: Relation, source: str, turn_id: str | None = None) -> str:
     """Generate a deterministic assertion identifier."""
     raw = f"{relation.subject}|{relation.predicate}|{relation.object}|{source}|{turn_id or ''}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
@@ -184,7 +185,7 @@ class OntologyModel:
     def iter_assertions(self) -> Any:
         return self._assertions.values()
 
-    def get_outgoing(self, subject: str, predicate: Optional[str] = None) -> list[Assertion]:
+    def get_outgoing(self, subject: str, predicate: str | None = None) -> list[Assertion]:
         """Fast lookup of outgoing assertions from subject."""
         aids = self._by_subject.get(subject)
         if not aids:
@@ -197,7 +198,7 @@ class OntologyModel:
             if aid in self._assertions and self._assertions[aid].relation.predicate == predicate
         ]
 
-    def get_incoming(self, object: str, predicate: Optional[str] = None) -> list[Assertion]:
+    def get_incoming(self, object: str, predicate: str | None = None) -> list[Assertion]:
         """Fast lookup of incoming assertions to object."""
         aids = self._by_object.get(object)
         if not aids:
@@ -218,8 +219,8 @@ class OntologyModel:
     def upsert_entity(
         self,
         id: str,
-        name: Optional[str] = None,
-        attributes: Optional[Mapping[str, Any]] = None,
+        name: str | None = None,
+        attributes: Mapping[str, Any] | None = None,
         **attrs: Any,
     ) -> Entity:
         """Add or update an entity immutably, merging attributes and bumping version."""
@@ -244,15 +245,15 @@ class OntologyModel:
         self._version += 1
         return new_entity
 
-    def get_entity(self, entity_id: str) -> Optional[Entity]:
+    def get_entity(self, entity_id: str) -> Entity | None:
         return self._entities.get(entity_id)
 
     def add_assertion(
         self,
         relation: Relation,
         provenance: Provenance,
-        assertion_id: Optional[str] = None,
-        attributes: Optional[dict[str, Any]] = None,
+        assertion_id: str | None = None,
+        attributes: Mapping[str, Any] | None = None,
     ) -> Assertion:
         """Add a triple assertion and update query indices."""
         # Ensure subject and object entities exist in the entity table
@@ -284,7 +285,7 @@ class OntologyModel:
         self._version += 1
         return asrt
 
-    def retract_assertion(self, assertion_id: str) -> Optional[Assertion]:
+    def retract_assertion(self, assertion_id: str) -> Assertion | None:
         """Retract an assertion by ID and clean indices."""
         asrt = self._assertions.pop(assertion_id, None)
         if not asrt:
@@ -319,9 +320,9 @@ class OntologyModel:
 
     def query(
         self,
-        subject: Optional[str] = None,
-        predicate: Optional[str] = None,
-        object: Optional[str] = None,
+        subject: str | None = None,
+        predicate: str | None = None,
+        object: str | None = None,
     ) -> list[Assertion]:
         """Query assertions matching the triple pattern in deterministic insertion order."""
         if subject is not None and predicate is not None and object is None:
@@ -340,7 +341,7 @@ class OntologyModel:
             aids = self._by_object.get(object, {})
             return [self._assertions[aid] for aid in aids if aid in self._assertions]
 
-        candidates: Optional[dict[str, None]] = None
+        candidates: dict[str, None] | None = None
 
         if subject is not None:
             candidates = dict(self._by_subject.get(subject, {}))

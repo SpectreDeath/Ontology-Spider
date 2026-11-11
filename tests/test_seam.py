@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ontology_spider.model import OntologyModel, Relation, Provenance
+from ontology_spider.model import OntologyModel, Provenance, Relation
 from ontology_spider.seam import JsonModelSource, ModelSource
 
 

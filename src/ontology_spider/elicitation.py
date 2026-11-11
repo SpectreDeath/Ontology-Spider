@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ontology_spider.dialog import _parse_attributes, parse_dialog
 from ontology_spider.dialog_runner import DialogSession
@@ -44,7 +45,7 @@ class ElicitedTurn:
     proposed_entities: dict[str, dict[str, Any]] = field(default_factory=dict)
     depends_on_turn_ids: list[str] = field(default_factory=list)
     confirmed: bool = False
-    phase: Optional[ElicitationState] = None
+    phase: ElicitationState | None = None
 
 
 class ElicitationManager:
@@ -53,7 +54,7 @@ class ElicitationManager:
     def __init__(
         self,
         uri: str = "urn:ontology:elicited",
-        validation_hook: Optional[Callable[[OntologyModel], list[str]]] = None,
+        validation_hook: Callable[[OntologyModel], list[str]] | None = None,
     ) -> None:
         self.uri = uri
         self.model = OntologyModel(uri=uri)
@@ -61,7 +62,7 @@ class ElicitationManager:
         self.scope_description: str = ""
         self.competency_queries: list[str] = []
         self.turns: list[ElicitedTurn] = []
-        self.pending_turn: Optional[ElicitedTurn] = None
+        self.pending_turn: ElicitedTurn | None = None
         self.pending_reconfirmations: list[ElicitedTurn] = []
         self.validation_hook = validation_hook
         self._turn_counter = 0
@@ -464,9 +465,7 @@ class ElicitationManager:
                     if rel.predicate in (SUBCLASS_OF, DISJOINT_WITH):
                         self._symbol_turn_map.setdefault(rel.subject, self.pending_turn.turn_id)
                         self._symbol_turn_map.setdefault(rel.object, self.pending_turn.turn_id)
-                    elif rel.predicate in (DOMAIN, RANGE, ACYCLIC):
-                        self._symbol_turn_map.setdefault(rel.subject, self.pending_turn.turn_id)
-                    elif rel.predicate == INSTANCE_OF:
+                    elif rel.predicate in (DOMAIN, RANGE, ACYCLIC) or rel.predicate == INSTANCE_OF:
                         self._symbol_turn_map.setdefault(rel.subject, self.pending_turn.turn_id)
                     else:
                         self._symbol_turn_map.setdefault(rel.predicate, self.pending_turn.turn_id)
@@ -710,17 +709,6 @@ class ElicitationManager:
             self._symbol_turn_map.setdefault(s, target_turn.turn_id)
             return f"Applied replacement instance assertion: ({s} {p} {o})."
         return f"Warning: Unrecognized instance input '{new_input}'."
-
-        self.pending_reconfirmations = list(invalidated)
-        base_msg = f"Amended {turn_id}: retracted {len(retracted)} assertions. {applied_msg}".strip()
-        if self.pending_reconfirmations:
-            next_t = self.pending_reconfirmations[0]
-            self.current_prompt = (
-                f"{base_msg} Re-confirmation required: confirm downstream turn "
-                f"'{next_t.turn_id}' ('{next_t.user_response}')? (y/n)"
-            )
-            return self.current_prompt
-        return base_msg
 
     def _finalize_elicitation(self) -> str:
         summary_lines = [

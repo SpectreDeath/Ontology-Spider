@@ -11,9 +11,9 @@ from ontology_spider.reasoning.python_backend import PythonReasoner
 
 __all__ = [
     "Explanation",
+    "PythonReasoner",
     "QuerySpec",
     "Reasoner",
     "ReasonerAnswer",
     "ReasonerResult",
-    "PythonReasoner",
 ]

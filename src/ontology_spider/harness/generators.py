@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import random
+
 from ontology_spider.model import (
     ACYCLIC,
-    INSTANCE_OF,
     SUBCLASS_OF,
     OntologyModel,
     Provenance,

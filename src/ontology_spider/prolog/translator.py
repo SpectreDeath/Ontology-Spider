@@ -7,7 +7,6 @@ from typing import Any
 
 from ontology_spider.model import (
     Assertion,
-    Entity,
     OntologyModel,
     Provenance,
     Relation,

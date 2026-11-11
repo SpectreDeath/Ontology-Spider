@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ontology_spider.api import load_model
 from ontology_spider.engine import Session
 from ontology_spider.model import OntologyModel
 from ontology_spider.prolog.reasoner import PrologReasoner
-from ontology_spider.reasoning.base import QuerySpec
 from ontology_spider.reasoning.python_backend import PythonReasoner
 
 
@@ -65,7 +62,7 @@ class HarnessReport:
 
     def summary(self) -> str:
         lines = [
-            f"Harness Parity Report:",
+            "Harness Parity Report:",
             f"  Total Queries Evaluated: {self.total_queries}",
             f"  Matching Answers: {self.passed_queries}/{self.total_queries}",
             f"  Parity Rate: {self.parity_rate * 100:.1f}%",
@@ -208,14 +205,14 @@ class HarnessRunner:
                 def __init__(self, msgs: list[dict[str, Any]]) -> None:
                     self.in_msgs = list(msgs)
                     self.out_msgs: list[dict[str, Any]] = []
-                def read_message(self) -> Optional[dict[str, Any]]:
+                def read_message(self) -> dict[str, Any] | None:
                     if self.in_msgs:
                         return self.in_msgs.pop(0)
                     return None
                 def write_message(self, message: dict[str, Any]) -> None:
                     self.out_msgs.append(message)
 
-            in_msgs = [
+            in_msgs: list[dict[str, Any]] = [
                 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
                 {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
             ]
@@ -293,3 +290,5 @@ class HarnessRunner:
                 violations_passed=violations_ok,
                 details=f"Ran {q_passed}/{len(queries)} queries over MCP ({backend})",
             )
+        else:
+            raise ValueError(f"Unsupported transport: {transport}")

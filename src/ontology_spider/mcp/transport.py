@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Callable, Optional, TextIO
+from typing import Any, TextIO
 
 
 class StdioTransport:
@@ -13,11 +13,11 @@ class StdioTransport:
     Supports standard newline-delimited JSON and Content-Length framed JSON-RPC.
     """
 
-    def __init__(self, in_stream: Optional[TextIO] = None, out_stream: Optional[TextIO] = None) -> None:
+    def __init__(self, in_stream: TextIO | None = None, out_stream: TextIO | None = None) -> None:
         self.in_stream = in_stream or sys.stdin
         self.out_stream = out_stream or sys.stdout
 
-    def read_message(self) -> Optional[dict[str, Any]]:
+    def read_message(self) -> dict[str, Any] | None:
         """Read a single JSON-RPC message from in_stream."""
         line = self.in_stream.readline()
         if not line:
