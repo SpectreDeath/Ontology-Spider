@@ -9,7 +9,7 @@ on:
 jobs:
   lint-and-typecheck:
     name: Lint & Type Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
 
@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
@@ -51,7 +51,7 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y swi-prolog swi-prolog-nox swi-prolog-packages || sudo apt-get install -y swi-prolog
+        sudo apt-get install -y swi-prolog swi-prolog-nox || sudo apt-get install -y swi-prolog
 
     - name: Install SWI-Prolog (Windows)
       if: runner.os == 'Windows'
@@ -80,7 +80,7 @@ jobs:
 
   degraded-mode:
     name: Degraded Mode (Ubuntu / Python 3.12 / No swipl)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
 
@@ -101,7 +101,7 @@ jobs:
 
   coverage:
     name: Coverage Report
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
 
@@ -113,7 +113,7 @@ jobs:
     - name: Install SWI-Prolog
       run: |
         sudo apt-get update
-        sudo apt-get install -y swi-prolog swi-prolog-nox swi-prolog-packages || sudo apt-get install -y swi-prolog
+        sudo apt-get install -y swi-prolog swi-prolog-nox || sudo apt-get install -y swi-prolog
 
     - name: Install Coverage
       run: |
@@ -129,7 +129,7 @@ jobs:
 
   benchmark:
     name: Latency Benchmark & Budgets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
 
@@ -141,7 +141,7 @@ jobs:
     - name: Install SWI-Prolog
       run: |
         sudo apt-get update
-        sudo apt-get install -y swi-prolog swi-prolog-nox swi-prolog-packages || sudo apt-get install -y swi-prolog
+        sudo apt-get install -y swi-prolog swi-prolog-nox || sudo apt-get install -y swi-prolog
 
     - name: Run Benchmark with Budgets
       env:
