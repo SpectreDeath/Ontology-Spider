@@ -6,6 +6,10 @@
     "query ancestors of delivery_drone?",
     "query transitive depends_on from sky_scout?",
     "query instance_of delivery_drone [payload_kg=5]?",
-    "query recommend aerial_vehicle [payload_kg=5]"
+    "query recommend aerial_vehicle [payload_kg=5]",
+    "query path from sky_scout to vehicle",
+    "query path via depends_on from sky_scout to gps_mod",
+    "query not sky_scout instance_of ground_vehicle",
+    "query count ancestors of delivery_drone"
   ]
 }

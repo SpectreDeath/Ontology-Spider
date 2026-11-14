@@ -11,6 +11,10 @@ from ontology_spider.mcp.transport import StdioTransport
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(
         prog="ontology-spider-mcp",
         description="Stdio JSON-RPC 2.0 MCP server for Ontology-Spider",

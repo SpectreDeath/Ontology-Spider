@@ -300,5 +300,18 @@ class TestPrologReasoner(unittest.TestCase):
         self.assertEqual(ds_deg.run_text("query not sky_scout instance_of boat")[0].answers[0].value, "true")
 
 
+
+    def test_persistent_worker_captures_stderr_on_crash(self):
+        import io
+        from pathlib import Path
+
+        from ontology_spider.prolog.worker import PersistentPrologWorker
+
+        worker = PersistentPrologWorker(swipl_path="swipl", rules_path=Path("rules.pl"))
+        worker._drain_stderr(io.StringIO("ERROR: syntax error in stream\n\nWARN: detail\n"))
+        self.assertEqual(list(worker._stderr_ring), ["ERROR: syntax error in stream", "WARN: detail"])
+        self.assertIn("ERROR: syntax error in stream | WARN: detail", worker._format_stderr_suffix())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,14 @@
 import unittest
 
-from ontology_spider.api import export_model, load_model, run_query, validate_model
+from ontology_spider.api import (
+    evaluate_competency_questions,
+    export_model,
+    load_model,
+    rank_discriminating_attributes,
+    run_query,
+    validate_model,
+)
+from ontology_spider.elicitation import ElicitationManager
 from ontology_spider.model import (
     INSTANCE_OF,
     SUBCLASS_OF,
@@ -97,6 +105,48 @@ class TestApiAndExport(unittest.TestCase):
         self.assertIn("<!DOCTYPE html>", html_str)
         self.assertIn("urn:test:export", html_str)
         self.assertIn("a_sparrow", html_str)
+
+
+
+    def test_rank_discriminating_attributes_and_competency_evaluation(self):
+        p = Provenance(source="test_api", turn_id="turn_attr")
+        self.model.add_assertion(Relation("e1", INSTANCE_OF, "bird"), p)
+        self.model.add_assertion(Relation("e2", INSTANCE_OF, "bird"), p)
+        self.model.add_assertion(Relation("e3", INSTANCE_OF, "bird"), p)
+        self.model.upsert_entity("e1", attributes={"color": "red", "tier": "a"})
+        self.model.upsert_entity("e2", attributes={"color": "blue", "tier": "a"})
+        self.model.upsert_entity("e3", attributes={"color": "green", "tier": "a"})
+
+        ranked = rank_discriminating_attributes(self.model, ["e1", "e2", "e3"])
+        self.assertEqual(ranked[0]["attribute"], "color")
+        self.assertGreater(ranked[0]["laya_score"], ranked[1]["laya_score"])
+        self.assertEqual(rank_discriminating_attributes(self.model, []), [])
+
+        mgr = ElicitationManager(model=self.model)
+        self.assertEqual(mgr.suggest_discriminating_attributes(["e1", "e2"])[0]["attribute"], "color")
+
+        self.model.upsert_entity("e1", attributes={"tags": ["alpha"], "_internal": "skip"})
+        all_ranked = rank_discriminating_attributes(self.model)
+        self.assertTrue(all(item["attribute"] != "_internal" for item in all_ranked))
+        empty_eval = evaluate_competency_questions(OntologyModel(uri="urn:empty"), ["  "])
+        self.assertEqual(empty_eval["total_questions"], 0)
+
+        report = evaluate_competency_questions(
+            self.model,
+            ["ancestors of jack", "query not jack instance_of fish"],
+        )
+        self.assertEqual(report["total_questions"], 2)
+        self.assertEqual(report["answered_questions"], 2)
+        self.assertEqual(report["violation_count"], 0)
+        self.assertEqual(report["coherence"], 1.0)
+        self.assertGreater(report["overall_score"], 0.5)
+
+        cyc_model = OntologyModel(uri="urn:test:cyc")
+        cyc_model.add_assertion(Relation("x", SUBCLASS_OF, "y"), p)
+        cyc_model.add_assertion(Relation("y", SUBCLASS_OF, "x"), p)
+        cyc_report = evaluate_competency_questions(cyc_model, ["query ancestors of x"])
+        self.assertGreaterEqual(cyc_report["violation_count"], 1)
+        self.assertLess(cyc_report["coherence"], 1.0)
 
 
 if __name__ == "__main__":

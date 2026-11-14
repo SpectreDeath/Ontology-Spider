@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from ontology_spider.engine import Engine
 from ontology_spider.export import to_dialog, to_json
 from ontology_spider.model import (
     INSTANCE_OF,
@@ -153,3 +154,48 @@ def verify_frame_scoping_invariant(model: OntologyModel) -> bool:
     manager.set_focus(entity_id=target)
     scoped_res = manager.query(f"query what is {target}?")
     return len(scoped_res.answers) <= len(base_res.answers)
+
+
+def verify_path_query_consistency(model: OntologyModel) -> bool:
+    """Invariant: every direct taxonomic edge has a consistent shortest path query answer."""
+    tax_edges = [
+        a for a in model.assertions.values()
+        if a.relation.predicate in (SUBCLASS_OF, INSTANCE_OF)
+    ]
+    if not tax_edges:
+        return True
+    engine = Engine()
+    edge = tax_edges[0]
+    u, v = edge.relation.subject, edge.relation.object
+    res = engine.query(model, f"query path from {u} to {v}")
+    if not res.answers:
+        return False
+    path_str = str(res.answers[0]["value"])
+    return path_str.startswith(u) and path_str.endswith(v)
+
+
+def verify_negation_query_consistency(model: OntologyModel) -> bool:
+    """Invariant: absent triples return 'true' under query not and present triples return 'false'."""
+    engine = Engine()
+    absent = engine.query(model, "query not __nonexistent_entity__ subclass_of __nonexistent_target__")
+    if not absent.answers or str(absent.answers[0]["value"]) != "true":
+        return False
+    first_asrt = next(iter(model.assertions.values()), None)
+    if first_asrt is None:
+        return True
+    rel = first_asrt.relation
+    present = engine.query(model, f"query not {rel.subject} {rel.predicate} {rel.object}")
+    return bool(present.answers) and str(present.answers[0]["value"]) == "false"
+
+
+def verify_count_query_consistency(model: OntologyModel) -> bool:
+    """Invariant: query count matches exact answer cardinality of the wrapped inner query."""
+    first_ent = next(iter(model.entities.keys()), None)
+    if first_ent is None:
+        return True
+    engine = Engine()
+    inner = engine.query(model, f"query what is {first_ent}?")
+    counted = engine.query(model, f"query count what is {first_ent}?")
+    if not counted.answers:
+        return False
+    return int(counted.answers[0]["value"]) == len(inner.answers)

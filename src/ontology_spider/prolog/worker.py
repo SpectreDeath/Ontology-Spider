@@ -8,6 +8,7 @@ import json
 import subprocess
 import tempfile
 import threading
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ class PersistentPrologWorker:
         self._proc: subprocess.Popen[str] | None = None
         self._lock = threading.Lock()
         self._loaded_key: tuple[str, int] | None = None
+        self._stderr_ring: deque[str] = deque(maxlen=50)
         self._tmpdir = tempfile.TemporaryDirectory()
         atexit.register(self.close)
 
@@ -122,8 +124,29 @@ assert_facts_stream(Stream) :-
             encoding="utf-8",
             bufsize=1,
         )
+        self._stderr_ring.clear()
+        threading.Thread(target=self._drain_stderr, args=(self._proc.stderr,), daemon=True).start()
         self._loaded_key = None
         return self._proc
+
+    def _drain_stderr(self, pipe: Any) -> None:
+        if pipe is None:
+            return
+        try:
+            for line in pipe:
+                stripped = line.strip()
+                if stripped:
+                    self._stderr_ring.append(stripped)
+        except (OSError, ValueError):
+            pass
+        finally:
+            with contextlib.suppress(OSError, ValueError):
+                pipe.close()
+
+    def _format_stderr_suffix(self) -> str:
+        if not self._stderr_ring:
+            return ""
+        return f" (stderr: {' | '.join(self._stderr_ring)})"
 
     def sync_facts(self, cache_key: tuple[str, int], facts_text: str) -> None:
         with self._lock:
@@ -138,8 +161,9 @@ assert_facts_stream(Stream) :-
             proc.stdin.flush()
             resp_line = proc.stdout.readline()
             if not resp_line:
+                suffix = self._format_stderr_suffix()
                 self._kill_proc()
-                raise RuntimeError("Prolog worker terminated unexpectedly during load_facts")
+                raise RuntimeError(f"Prolog worker terminated unexpectedly during load_facts{suffix}")
             data = json.loads(resp_line)
             if data.get("status") != "ok":
                 raise RuntimeError(f"Failed to load facts into worker: {data}")
@@ -182,8 +206,9 @@ assert_facts_stream(Stream) :-
 
             line = result_holder[0]
             if not line:
+                suffix = self._format_stderr_suffix()
                 self._kill_proc()
-                raise RuntimeError("Empty response from Prolog worker")
+                raise RuntimeError(f"Empty response from Prolog worker{suffix}")
             return json.loads(line)
 
     def _kill_proc(self) -> None:

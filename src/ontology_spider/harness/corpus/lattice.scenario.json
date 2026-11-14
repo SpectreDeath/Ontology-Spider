@@ -3,7 +3,8 @@
   "model": "examples/lattice.dialog",
   "queries": [
     "query ancestors of bottom",
-    "query transitive subclass_of from bottom"
+    "query transitive subclass_of from bottom",
+    "query path from bottom to top",
+    "query count ancestors of bottom"
   ]
 }
-

@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from ontology_spider.engine import Engine, QueryResult
+from ontology_spider.entropy import (
+    evaluate_competency_questions as evaluate_competency_questions,
+)
+from ontology_spider.entropy import (
+    rank_discriminating_attributes as rank_discriminating_attributes,
+)
 from ontology_spider.export import to_dialog, to_dot, to_html, to_json
 from ontology_spider.model import OntologyModel
 from ontology_spider.seam import DialogModelSource, JsonModelSource, ModelSource

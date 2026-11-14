@@ -7,7 +7,10 @@ from ontology_spider.harness.generators import (
     generate_tree,
 )
 from ontology_spider.harness.properties import (
+    verify_count_query_consistency,
     verify_frame_scoping_invariant,
+    verify_negation_query_consistency,
+    verify_path_query_consistency,
     verify_roundtrip_dialog,
     verify_roundtrip_json,
     verify_transitivity_monotonicity,
@@ -41,6 +44,12 @@ class TestHarnessProperties(unittest.TestCase):
     def test_frame_scoping_invariant(self):
         model = generate_tree(10, 2)
         self.assertTrue(verify_frame_scoping_invariant(model))
+
+    def test_phase5_path_negation_and_count_invariants(self):
+        model = generate_chain(10)
+        self.assertTrue(verify_path_query_consistency(model))
+        self.assertTrue(verify_negation_query_consistency(model))
+        self.assertTrue(verify_count_query_consistency(model))
 
     def test_python_reasoner_all_query_kinds(self):
         from ontology_spider.api import load_model
