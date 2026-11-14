@@ -632,5 +632,86 @@ class TestMCPServer(unittest.TestCase):
             self.assertEqual(len(res_pl[0].answers), 199)
 
 
+class TestMCPHardening(unittest.TestCase):
+    def test_assert_triple_with_attributes_model_load_retract_and_import_sandbox(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "sandbox"
+            root.mkdir()
+            outside = Path(tmp) / "outside.dialog"
+            outside.write_text("dialog urn:outside\nassert secret subclass_of hidden\n", encoding="utf-8")
+
+            inside = root / "drones.dialog"
+            inside.write_text(
+                "dialog urn:inside\nassert sky_scout instance_of drone [payload_kg=5]\n",
+                encoding="utf-8",
+            )
+
+            msgs = [
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_attr"}}},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_attr", "subject": "quad_x1", "predicate": "instance_of", "object": "drone", "attributes": {"payload_kg": 5}}}},
+                {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "model_load", "arguments": {"session_id": "s_attr", "path": "drones.dialog"}}},
+                {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "retract", "arguments": {"session_id": "s_attr", "assertion_id": "nonexistent_id"}}},
+                {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "run_dialog", "arguments": {"session_id": "s_attr", "dialog_text": "import ../outside.dialog"}}},
+                {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "run_dialog", "arguments": {"session_id": "s_attr", "dialog_text": "query recommend drone [payload_kg=5]"}}},
+                {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "explain", "arguments": {"session_id": "s_attr"}}},
+            ]
+            raw_in = "\n".join(json.dumps(m) for m in msgs) + "\n"
+            transport = FakeStreamTransport(raw_in)
+            server = MCPServer(transport=transport, root_dir=root)
+            server.run()
+            responses = transport.get_output_messages()
+
+            self.assertEqual(len(responses), 8)
+            self.assertEqual(responses[0]["result"]["serverInfo"]["version"], "0.2.0")
+            self.assertNotIn("error", responses[2])
+            self.assertIn("Asserted", responses[2]["result"]["content"][0]["text"])
+            self.assertNotIn("error", responses[3])
+            self.assertIn("Loaded model", responses[3]["result"]["content"][0]["text"])
+            self.assertFalse(responses[4]["result"]["retracted"])
+            self.assertIn("not found", responses[4]["result"]["content"][0]["text"])
+            self.assertIn("error", responses[5])
+            self.assertEqual(responses[5]["error"]["code"], -32001)
+            self.assertNotIn("error", responses[6])
+            self.assertNotIn("error", responses[7])
+            self.assertIn("Explanation for previous answers", responses[7]["result"]["content"][0]["text"])
+
+    def test_retract_turn_and_session_save_restore(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            msgs = [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_save"}}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_save", "subject": "a", "predicate": "subclass_of", "object": "b"}}},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_save", "subject": "b", "predicate": "subclass_of", "object": "c"}}},
+                {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "declare_entity", "arguments": {"session_id": "s_save", "entity_id": "a", "attributes": {"tier": "1"}}}},
+                {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "focus", "arguments": {"session_id": "s_save", "entity_id": "a"}}},
+                {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "constrain", "arguments": {"session_id": "s_save", "key": "tier", "value": "1"}}},
+                {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "session_save", "arguments": {"session_id": "s_save", "path": "saved/sess.json"}}},
+                {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "retract_turn", "arguments": {"session_id": "s_save", "turn_id": "turn_2"}}},
+                {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "session_close", "arguments": {"session_id": "s_save"}}},
+                {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "session_restore", "arguments": {"path": "saved/sess.json", "session_id": "s_restored"}}},
+                {"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": {"name": "where_am_i", "arguments": {"session_id": "s_restored"}}},
+                {"jsonrpc": "2.0", "id": 12, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_restored", "query": "query ancestors of a"}}},
+            ]
+            raw_in = "\n".join(json.dumps(m) for m in msgs) + "\n"
+            transport = FakeStreamTransport(raw_in)
+            server = MCPServer(transport=transport, root_dir=root)
+            server.run()
+            responses = transport.get_output_messages()
+
+            self.assertEqual(len(responses), 12)
+            self.assertEqual(responses[1]["result"]["turn_id"], "turn_1")
+            self.assertEqual(responses[2]["result"]["turn_id"], "turn_2")
+            self.assertEqual(responses[7]["result"]["retracted_count"], 1)
+            self.assertEqual(responses[9]["result"]["sessionId"], "s_restored")
+            self.assertIn("focus='a'", responses[10]["result"]["content"][0]["text"])
+            self.assertIn("tier=1", responses[10]["result"]["content"][0]["text"])
+            self.assertIn("b", responses[11]["result"]["content"][0]["text"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,7 @@ def load_imported_model(
     import_path: str | Path,
     base_dir: Path | None = None,
     import_chain: tuple[Path, ...] = (),
+    allowed_root: Path | None = None,
 ) -> OntologyModel:
     """Resolve and load an imported model (.json or .dialog) with cycle detection."""
     target_path = Path(import_path)
@@ -36,6 +37,15 @@ def load_imported_model(
         target_path = (resolved_base / target_path).resolve()
     else:
         target_path = target_path.resolve()
+
+    if allowed_root is not None:
+        resolved_root = allowed_root.resolve()
+        try:
+            target_path.relative_to(resolved_root)
+        except ValueError as exc:
+            raise PermissionError(
+                f"Access denied: import path '{import_path}' is outside root '{resolved_root}'"
+            ) from exc
 
     if target_path in import_chain:
         chain_strs = [str(p) for p in import_chain] + [str(target_path)]
@@ -46,7 +56,12 @@ def load_imported_model(
     if target_path.suffix.lower() == ".json":
         return JsonModelSource(target_path).load()
     elif target_path.suffix.lower() == ".dialog":
-        return DialogModelSource(target_path, base_dir=target_path.parent, import_chain=new_chain).load()
+        return DialogModelSource(
+            target_path,
+            base_dir=target_path.parent,
+            import_chain=new_chain,
+            allowed_root=allowed_root,
+        ).load()
     else:
         raise ValueError(f"Unsupported model import format: {target_path}")
 
@@ -92,9 +107,11 @@ class DialogModelSource(ModelSource):
         source: str | Path,
         base_dir: str | Path | None = None,
         import_chain: tuple[Path, ...] = (),
+        allowed_root: Path | None = None,
     ) -> None:
         self.source = source
         self.import_chain = import_chain
+        self.allowed_root = allowed_root
         if isinstance(source, Path):
             self.base_dir = source.parent
         elif base_dir:
@@ -111,6 +128,15 @@ class DialogModelSource(ModelSource):
             text = path.read_text(encoding="utf-8")
             source_label = str(path)
             current_chain = self.import_chain or (path,)
+        elif (
+            isinstance(self.source, str)
+            and "\n" not in self.source
+            and self.source.strip().endswith(".dialog")
+            and not self.source.strip().startswith(
+                ("dialog ", "ontology ", "import ", "entity ", "assert ", "query ", "explain", "#")
+            )
+        ):
+            raise FileNotFoundError(f"Dialog model file not found: {self.source}")
         else:
             text = str(self.source)
             source_label = "inline.dialog"
@@ -126,6 +152,7 @@ class DialogModelSource(ModelSource):
                     stmt.path,
                     base_dir=self.base_dir,
                     import_chain=current_chain,
+                    allowed_root=self.allowed_root,
                 )
 
                 # Merge entities and assertions

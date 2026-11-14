@@ -72,6 +72,15 @@ explain query ancestors of car
 ### Pattern Queries
 - `query <subject> <predicate> <object>?`: Matches triple patterns where any position can be `?`, `*`, or `_`.
 
+### Shortest Path Queries
+- `query path [via <predicate>] from <X> to <Y>`: Finds the shortest directed path from `<X>` to `<Y>` (over `<predicate>` when `via <predicate>` is specified, or `subclass_of`/`instance_of` otherwise).
+
+### Closed-World Negation
+- `query not <subject> <predicate> <object>`: Returns `"true"` if no matching assertion exists in the model, or `"false"` with the witnessing assertion ID if one exists.
+
+### Cardinality Counting
+- `query count <query_form>`: Evaluates `<query_form>` and returns the integer count of matching answers.
+
 ### Explanatory Follow-Ups
 - `explain`: Explains how the previous turn's answers were obtained.
 - `explain <query>`: Evaluates `<query>` inline and immediately outputs:

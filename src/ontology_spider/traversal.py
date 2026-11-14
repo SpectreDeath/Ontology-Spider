@@ -22,6 +22,25 @@ class TraversalFrame:
     last_answers: list[ReasonerAnswer] = field(default_factory=list)
     status: str = "active"  # "active", "completed", "aborted"
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "frame_id": self.frame_id,
+            "focus_entity": self.focus_entity,
+            "active_constraints": dict(self.active_constraints),
+            "query_goal": self.query_goal,
+            "status": self.status,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TraversalFrame:
+        return cls(
+            frame_id=str(data["frame_id"]),
+            focus_entity=data.get("focus_entity"),
+            active_constraints=dict(data.get("active_constraints", {})),
+            query_goal=data.get("query_goal"),
+            status=str(data.get("status", "active")),
+        )
+
 
 class TraversalDialogueManager:
     """Manages conversational traversal with frame stack, auditable paths, and constraint re-planning."""
@@ -149,27 +168,44 @@ class TraversalDialogueManager:
         if self.current_frame.active_constraints and result.answers:
             filtered_answers = []
             for ans in result.answers:
-                if isinstance(ans.value, str):
+                cand_id: str | None = None
+                direct_asrt = (
+                    ans.explanation.provenance_assertions[0]
+                    if ans.explanation.provenance_assertions
+                    else None
+                )
+                if isinstance(ans.value, str) and not (
+                    ans.value.startswith("(") and ans.value.endswith(")")
+                ):
                     cand_id = ans.value
-                    cand_ent = self.model.get_entity(cand_id)
-                    satisfies = True
-                    for ck, cv in self.current_frame.active_constraints.items():
-                        val = None
-                        if cand_ent and ck in cand_ent.attributes:
-                            val = cand_ent.attributes[ck]
-                        else:
-                            for asrt in self.model.query(subject=cand_id, predicate="instance_of"):
-                                if ck in asrt.attributes:
-                                    val = asrt.attributes[ck]
-                                    break
-                        if val is None or str(val) != str(cv):
-                            satisfies = False
-                            break
-                    if satisfies:
-                        if "filtered_by_frame_constraints" not in ans.explanation.rules_fired:
-                            ans.explanation.rules_fired.append("filtered_by_frame_constraints")
-                        filtered_answers.append(ans)
-                else:
+                elif direct_asrt is not None:
+                    cand_id = direct_asrt.relation.subject
+                elif isinstance(ans.value, dict) and "subject" in ans.value:
+                    cand_id = str(ans.value["subject"])
+
+                if cand_id is None:
+                    filtered_answers.append(ans)
+                    continue
+
+                cand_ent = self.model.get_entity(cand_id)
+                satisfies = True
+                for ck, cv in self.current_frame.active_constraints.items():
+                    val = None
+                    if direct_asrt is not None and ck in direct_asrt.attributes:
+                        val = direct_asrt.attributes[ck]
+                    elif cand_ent and ck in cand_ent.attributes:
+                        val = cand_ent.attributes[ck]
+                    else:
+                        for asrt in self.model.query(subject=cand_id, predicate="instance_of"):
+                            if ck in asrt.attributes:
+                                val = asrt.attributes[ck]
+                                break
+                    if val is None or str(val) != str(cv):
+                        satisfies = False
+                        break
+                if satisfies:
+                    if "filtered_by_frame_constraints" not in ans.explanation.rules_fired:
+                        ans.explanation.rules_fired.append("filtered_by_frame_constraints")
                     filtered_answers.append(ans)
 
             result = DialogTurnResult(
@@ -193,3 +229,17 @@ class TraversalDialogueManager:
         """Explain the most recent answer in the active frame."""
         res = self.session.execute_statement(DialogQuery(kind="explain"))
         return res.summary_text
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize traversal frame stack state."""
+        return {
+            "frame_counter": self._frame_counter,
+            "frame_stack": [f.to_dict() for f in self.frame_stack],
+        }
+
+    def restore_state(self, data: dict[str, Any]) -> None:
+        """Restore traversal frame stack state from serialized dictionary."""
+        self._frame_counter = int(data.get("frame_counter", 0))
+        frames = [TraversalFrame.from_dict(f) for f in data.get("frame_stack", [])]
+        if frames:
+            self.frame_stack = frames

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -82,12 +83,14 @@ class Session:
         model: OntologyModel | None = None,
         reasoner: Reasoner | None = None,
         base_dir: Path | None = None,
+        allowed_root: Path | None = None,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
     ) -> None:
         self.session_id: str = session_id or uuid.uuid4().hex[:8]
         self.model: OntologyModel = model or OntologyModel(uri=f"urn:dialog:session:{self.session_id}")
         self.base_dir: Path = base_dir or Path.cwd()
+        self.allowed_root: Path | None = allowed_root
         self.timeout_seconds: float = timeout_seconds
         self.max_inferences: int = max_inferences
 
@@ -129,7 +132,11 @@ class Session:
         turn_id = f"turn_{self.turn_counter}"
 
         if isinstance(stmt, DialogImport):
-            sub_model = load_imported_model(stmt.path, base_dir=self.base_dir)
+            sub_model = load_imported_model(
+                stmt.path,
+                base_dir=self.base_dir,
+                allowed_root=self.allowed_root,
+            )
             for ent in sub_model.entities.values():
                 self.model.add_entity(ent)
             for asrt in sub_model.assertions.values():
@@ -195,16 +202,71 @@ class Session:
         predicate: str,
         object: str,
         source: str = "engine",
-        **attributes: Any,
+        attributes: Mapping[str, Any] | None = None,
+        turn_id: str | None = None,
+        **extra_attrs: Any,
     ) -> Assertion:
-        prov = Provenance(source=source)
-        return self.model.add_assertion(Relation(subject, predicate, object), prov, **attributes)
+        self.turn_counter += 1
+        resolved_turn_id = turn_id or f"turn_{self.turn_counter}"
+        prov = Provenance(source=source, turn_id=resolved_turn_id)
+        merged: dict[str, Any] = dict(attributes or {})
+        if extra_attrs:
+            merged.update(extra_attrs)
+        return self.model.add_assertion(
+            Relation(subject, predicate, object),
+            prov,
+            attributes=merged,
+        )
 
     def declare_entity(self, entity_id: str, **attributes: Any) -> Any:
         return self.model.upsert_entity(entity_id, **attributes)
 
     def retract_assertion(self, assertion_id: str) -> bool:
         return self.model.retract_assertion(assertion_id) is not None
+
+    def retract_by_turn(self, turn_id: str) -> list[Assertion]:
+        """Retract all assertions produced during a given turn_id."""
+        return self.model.retract_by_turn_id(turn_id)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize session model and runtime state."""
+        return {
+            "session_id": self.session_id,
+            "turn_counter": self.turn_counter,
+            "model": self.model.to_dict(),
+            "traversal": self.traversal.to_dict(),
+            "last_query_result": (
+                self.last_query_result.to_dict() if self.last_query_result else None
+            ),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        session_id: str | None = None,
+        reasoner: Reasoner | None = None,
+        base_dir: Path | None = None,
+        allowed_root: Path | None = None,
+        timeout_seconds: float = 10.0,
+        max_inferences: int = 1_000_000,
+    ) -> Session:
+        """Restore a Session from serialized dictionary state."""
+        model = OntologyModel.from_dict(data["model"])
+        sid = session_id or str(data.get("session_id") or uuid.uuid4().hex[:8])
+        session = cls(
+            session_id=sid,
+            model=model,
+            reasoner=reasoner,
+            base_dir=base_dir,
+            allowed_root=allowed_root,
+            timeout_seconds=timeout_seconds,
+            max_inferences=max_inferences,
+        )
+        session.turn_counter = int(data.get("turn_counter", 0))
+        if "traversal" in data and isinstance(data["traversal"], dict):
+            session.traversal.restore_state(data["traversal"])
+        return session
 
     def run_dialog(self, dialog_text: str) -> QueryResult:
         results = self.execute(dialog_text)
@@ -240,6 +302,35 @@ class Session:
                 raw_answers=self.last_query_result.raw_answers,
                 explanation=first_explanation,
             )
+
+        if query.kind == "count" and query.subquery is not None:
+            inner = self._execute_query(query.subquery)
+            count_val = len(inner.raw_answers)
+            count_exp = Explanation(
+                rules_fired=["count_aggregation"],
+                fact_ids=[],
+                path=[],
+                provenance_assertions=[],
+            )
+            count_ans = ReasonerAnswer(value=count_val, explanation=count_exp)
+            q_res = QueryResult(
+                query_text=query.raw_text or "query count",
+                statement_type="query",
+                summary=f"Count: {count_val}",
+                answers=[
+                    {
+                        "value": count_val,
+                        "rules_fired": count_exp.rules_fired,
+                        "path": [],
+                        "fact_ids": [],
+                        "provenance": [],
+                    }
+                ],
+                raw_answers=[count_ans],
+                explanation=count_exp,
+            )
+            self.last_query_result = q_res
+            return q_res
 
         # Standard queries
         spec = QuerySpec(
@@ -337,6 +428,10 @@ class SessionManager:
 
     def get_session(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
+
+    def register_session(self, session: Session) -> Session:
+        self._sessions[session.session_id] = session
+        return session
 
     def close_session(self, session_id: str) -> bool:
         return self._sessions.pop(session_id, None) is not None

@@ -114,6 +114,22 @@ class PythonReasoner(Reasoner):
             )
         elif actual_spec.kind == "recommend":
             return self._query_recommend(model, actual_spec, tracker)
+        elif actual_spec.kind == "path":
+            return self._query_path(
+                model,
+                actual_spec.subject or "",
+                actual_spec.object or "",
+                actual_spec.predicate,
+                tracker,
+            )
+        elif actual_spec.kind == "not":
+            return self._query_not(
+                model,
+                actual_spec.subject,
+                actual_spec.predicate,
+                actual_spec.object,
+                tracker,
+            )
         else:
             return ReasonerResult(query_goal=actual_spec.kind, answers=[])
 
@@ -371,3 +387,93 @@ class PythonReasoner(Reasoner):
                 )
 
         return ReasonerResult(query_goal=f"recommend({cls_name})", answers=answers)
+
+    def _query_path(
+        self,
+        model: OntologyModel,
+        start: str,
+        target: str,
+        predicate: str | None = None,
+        tracker: _PythonQueryTracker | None = None,
+    ) -> ReasonerResult:
+        if start == target:
+            if tracker:
+                tracker.step()
+            return ReasonerResult(
+                query_goal=f"path({start}, {target})",
+                answers=[
+                    ReasonerAnswer(
+                        value=start,
+                        explanation=Explanation(
+                            rules_fired=["shortest_path", "degraded_python_fallback"],
+                            fact_ids=[],
+                            path=[start],
+                            provenance_assertions=[],
+                        ),
+                    )
+                ],
+            )
+        sub_res = (
+            self._query_transitive(model, start, predicate, tracker)
+            if predicate
+            else self._query_ancestors(model, start, tracker)
+        )
+        for ans in sub_res.answers:
+            if ans.value == target:
+                return ReasonerResult(
+                    query_goal=f"path({start}, {target})",
+                    answers=[
+                        ReasonerAnswer(
+                            value=" -> ".join(ans.explanation.path),
+                            explanation=Explanation(
+                                rules_fired=["shortest_path", "degraded_python_fallback"],
+                                fact_ids=ans.explanation.fact_ids,
+                                path=ans.explanation.path,
+                                provenance_assertions=ans.explanation.provenance_assertions,
+                            ),
+                        )
+                    ],
+                )
+        return ReasonerResult(query_goal=f"path({start}, {target})", answers=[])
+
+    def _query_not(
+        self,
+        model: OntologyModel,
+        subject: str | None,
+        predicate: str | None,
+        object_: str | None,
+        tracker: _PythonQueryTracker | None = None,
+    ) -> ReasonerResult:
+        if tracker:
+            tracker.step()
+        matches = model.query(subject=subject, predicate=predicate, object=object_)
+        if matches:
+            a = matches[0]
+            return ReasonerResult(
+                query_goal="not",
+                answers=[
+                    ReasonerAnswer(
+                        value="false",
+                        explanation=Explanation(
+                            rules_fired=["negation_refuted"],
+                            fact_ids=[a.assertion_id],
+                            path=[a.relation.subject, a.relation.object],
+                            provenance_assertions=[a],
+                        ),
+                    )
+                ],
+            )
+        return ReasonerResult(
+            query_goal="not",
+            answers=[
+                ReasonerAnswer(
+                    value="true",
+                    explanation=Explanation(
+                        rules_fired=["closed_world_negation"],
+                        fact_ids=[],
+                        path=[subject or "*", object_ or "*"],
+                        provenance_assertions=[],
+                    ),
+                )
+            ],
+        )

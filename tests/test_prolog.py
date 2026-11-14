@@ -234,6 +234,71 @@ class TestPrologReasoner(unittest.TestCase):
         self.assertEqual(len(turn_res.answers), 3)
         self.assertIn("degraded_python_fallback", turn_res.answers[0].explanation.rules_fired)
 
+    def test_prolog_filter_query_and_cyclic_subclass_recommend(self):
+        from ontology_spider.api import run_query
+
+        model = OntologyModel(uri="urn:test:prolog_parity")
+        p = Provenance(source="test")
+        model.add_assertion(Relation("a", SUBCLASS_OF, "b"), p)
+        model.add_assertion(Relation("b", SUBCLASS_OF, "a"), p)
+        model.add_assertion(Relation("x", INSTANCE_OF, "b"), p, attributes={"payload_kg": 5})
+
+        res_filter = run_query(model, "query filter instance_of where payload_kg=5")
+        self.assertEqual(len(res_filter.answers), 1)
+        self.assertEqual(res_filter.answers[0]["value"], "(x instance_of b)")
+
+        res_rec = run_query(model, "query recommend a [payload_kg=5]")
+        self.assertEqual(len(res_rec.answers), 1)
+        self.assertEqual(res_rec.answers[0]["value"], "x")
+
+    def test_track_e_path_not_count_and_quoted_where_parity(self):
+        from ontology_spider.engine import Session
+        from ontology_spider.reasoning.python_backend import PythonReasoner
+        from ontology_spider.traversal import TraversalDialogueManager
+
+        model = OntologyModel(uri="urn:test:track_e")
+        p = Provenance(source="test")
+        model.upsert_entity("sky_scout", attributes={"label": "Sky Scout"})
+        model.add_assertion(Relation("sky_scout", INSTANCE_OF, "drone"), p)
+        model.add_assertion(Relation("drone", SUBCLASS_OF, "vehicle"), p)
+        model.add_assertion(Relation("sky_scout", "depends_on", "nav"), p)
+        model.add_assertion(Relation("nav", "depends_on", "gps"), p)
+
+        py_sess = Session(model=model, reasoner=PythonReasoner())
+        pl_sess = Session(model=model, reasoner=self.reasoner)
+
+        queries = [
+            "query path from sky_scout to vehicle",
+            "query path via depends_on from sky_scout to gps",
+            "query path from sky_scout to sky_scout",
+            "query path from vehicle to sky_scout",
+            "query not sky_scout instance_of boat",
+            "query not sky_scout instance_of drone",
+            "query count ancestors of sky_scout",
+            'query recommend drone where label = "Sky Scout"',
+        ]
+        for q in queries:
+            r_py = py_sess.execute(q)[0]
+            r_pl = pl_sess.execute(q)[0]
+            self.assertEqual(
+                [a["value"] for a in r_py.answers],
+                [a["value"] for a in r_pl.answers],
+                f"Parity mismatch for: {q}",
+            )
+
+        # Traversal frame constraint should not drop lookup answers for matching subject
+        mgr = TraversalDialogueManager(model=model, reasoner=PythonReasoner())
+        mgr.change_constraint("label", "Sky Scout")
+        lookup_res = mgr.query("query what is sky_scout?")
+        self.assertGreaterEqual(len(lookup_res.answers), 1)
+
+        # DialogSession direct path, not, and count execution (including degraded mode)
+        ds_pl = DialogSession(model=model, reasoner=self.reasoner)
+        self.assertEqual(ds_pl.run_text("query count ancestors of sky_scout")[0].answers[0].value, 2)
+        ds_deg = DialogSession(model=model, reasoner=PrologReasoner(swipl_path="C:\\nonexistent\\swipl.exe"))
+        self.assertEqual(ds_deg.run_text("query path from sky_scout to vehicle")[0].answers[0].value, "sky_scout -> drone -> vehicle")
+        self.assertEqual(ds_deg.run_text("query not sky_scout instance_of boat")[0].answers[0].value, "true")
+
 
 if __name__ == "__main__":
     unittest.main()

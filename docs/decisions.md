@@ -225,3 +225,13 @@ This document records the foundational decisions for the `Ontology-Spider` engin
   2. **Mypy Type Checking Scope**:
      - Authoritative CI enforcement runs `mypy src` (the public library codebase).
      - Test files in `tests/` contain dynamic test idioms and assertions and are intentionally excluded from `mypy` gating in CI. The commit message for `01d1ca6` ("across src and tests") is hereby formally reconciled: strict type safety is enforced on `src/`, with unit test contracts verified via `unittest discover`.
+
+### 7.15 Phase-5 Query Language Extensions (`path`, `not`, `count`)
+- **Date**: 2026-11-12
+- **Decision**: Extend `.dialog` query grammar with three deterministic query forms:
+  1. `query path [via <predicate>] from <X> to <Y>`: Point-to-point shortest directed path query.
+  2. `query not <subject> <predicate> <object>`: Closed-world negation check over triple patterns (supporting `?`, `*`, `_` wildcards).
+  3. `query count <inner_query>`: Cardinality aggregation returning the integer count of answers produced by `<inner_query>`.
+- **Rationale**:
+  - Completes the Phase-5 query-language growth backlog item while preserving deterministic BFS semantics and 100% Prolog/Python parity.
+  - `count` composes over `DialogQuery.subquery` without duplicating reasoner logic; `path` reuses existing BFS reachability; `not` uses closed-world triple matching.

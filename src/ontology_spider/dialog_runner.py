@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,6 +27,7 @@ from ontology_spider.prolog.reasoner import (
     ReasonerResult,
 )
 from ontology_spider.reasoning.base import QuerySpec
+from ontology_spider.reasoning.python_backend import PythonReasoner
 from ontology_spider.seam import load_imported_model
 
 
@@ -146,128 +146,20 @@ class DialogSession:
             return s
 
     def _execute_degraded_query(self, query: DialogQuery) -> ReasonerResult:
-        answers: list[ReasonerAnswer] = []
-        if query.kind == "ancestors":
-            target = query.subject or ""
-            anc_visited: set[str] = {target}
-            anc_queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
-            while anc_queue:
-                curr, path, asrts = anc_queue.popleft()
-                for pred in ("subclass_of", "instance_of"):
-                    for a in self.model.query(subject=curr, predicate=pred):
-                        obj = a.relation.object
-                        if obj not in anc_visited:
-                            anc_visited.add(obj)
-                            new_path = path + [obj] if len(path) < 50 else path
-                            new_asrts = asrts + [a] if len(asrts) < 50 else asrts
-                            anc_queue.append((obj, new_path, new_asrts))
-                            answers.append(
-                                ReasonerAnswer(
-                                    value=obj,
-                                    explanation=Explanation(
-                                        rules_fired=["ancestor_rule", "degraded_python_fallback"],
-                                        fact_ids=[x.assertion_id for x in new_asrts],
-                                        path=new_path,
-                                        provenance_assertions=new_asrts,
-                                    ),
-                                )
-                            )
-            return ReasonerResult(query_goal=f"ancestors({target})", answers=answers)
-
-        if query.kind == "transitive":
-            target = query.subject or ""
-            pred = query.predicate or ""
-            trans_visited: set[str] = {target}
-            trans_queue: deque[tuple[str, list[str], list[Assertion]]] = deque([(target, [target], [])])
-            while trans_queue:
-                curr, path, asrts = trans_queue.popleft()
-                for a in self.model.query(subject=curr, predicate=pred):
-                    obj = a.relation.object
-                    if obj not in trans_visited:
-                        trans_visited.add(obj)
-                        new_path = path + [obj] if len(path) < 50 else path
-                        new_asrts = asrts + [a] if len(asrts) < 50 else asrts
-                        trans_queue.append((obj, new_path, new_asrts))
-                        answers.append(
-                            ReasonerAnswer(
-                                value=obj,
-                                explanation=Explanation(
-                                    rules_fired=["transitive_closure", "degraded_python_fallback"],
-                                    fact_ids=[x.assertion_id for x in new_asrts],
-                                    path=new_path,
-                                    provenance_assertions=new_asrts,
-                                ),
-                            )
-                        )
-            return ReasonerResult(query_goal=f"transitive({pred}, {target})", answers=answers)
-
-        if query.kind == "pattern":
-            for a in self.model.query(
-                subject=query.subject, predicate=query.predicate, object=query.object
-            ):
-                answers.append(
-                    ReasonerAnswer(
-                        value={
-                            "subject": a.relation.subject,
-                            "predicate": a.relation.predicate,
-                            "object": a.relation.object,
-                        },
-                        explanation=Explanation(
-                            rules_fired=["degraded_python_fallback"],
-                            fact_ids=[a.assertion_id],
-                            path=[a.relation.subject, a.relation.object],
-                            provenance_assertions=[a],
-                        ),
-                    )
-                )
-            return ReasonerResult(query_goal="pattern", answers=answers)
-
-        if query.kind == "recommend":
-            cls_name = query.object or query.subject or ""
-            target_classes = {cls_name}
-            rec_queue: deque[str] = deque([cls_name])
-            while rec_queue:
-                curr_cls = rec_queue.popleft()
-                for a in self.model.query(predicate="subclass_of", object=curr_cls):
-                    sub = a.relation.subject
-                    if sub not in target_classes:
-                        target_classes.add(sub)
-                        rec_queue.append(sub)
-
-            for tc in target_classes:
-                for a in self.model.query(predicate="instance_of", object=tc):
-                    cand = a.relation.subject
-                    attrs_to_check = query.filter_attributes or (
-                        {query.filter_key: query.filter_val}
-                        if query.filter_key and query.filter_val is not None
-                        else {}
-                    )
-                    match_all = True
-                    for fk, fv in attrs_to_check.items():
-                        val = a.attributes.get(fk)
-                        if val is None:
-                            ent = self.model.get_entity(cand)
-                            if ent:
-                                val = ent.attributes.get(fk)
-                        if val is None or str(val) != str(fv):
-                            match_all = False
-                            break
-                    if not match_all:
-                        continue
-                    answers.append(
-                        ReasonerAnswer(
-                            value=cand,
-                            explanation=Explanation(
-                                rules_fired=["degraded_python_fallback"],
-                                fact_ids=[a.assertion_id],
-                                path=[cls_name, cand],
-                                provenance_assertions=[a],
-                            ),
-                        )
-                    )
-            return ReasonerResult(query_goal=f"recommend({cls_name})", answers=answers)
-
-        return ReasonerResult(query_goal=query.kind, answers=[])
+        cls_name = query.object or query.subject or ""
+        f_val = self._coerce_val(query.filter_val) if query.filter_val is not None else None
+        spec = QuerySpec(
+            kind=query.kind,
+            subject=cls_name if query.kind == "recommend" else query.subject,
+            predicate=query.predicate,
+            object=cls_name if query.kind == "recommend" else query.object,
+            filter_key=query.filter_key,
+            filter_val=f_val,
+            filter_attributes=dict(query.filter_attributes) if query.filter_attributes else {},
+            timeout_seconds=float(self.timeout_seconds),
+            max_inferences=int(self.max_inferences),
+        )
+        return PythonReasoner().query(self.model, spec)
 
     def _execute_query(self, query: DialogQuery, turn_id: str) -> DialogTurnResult:
         if query.kind == "explain":
@@ -498,6 +390,58 @@ class DialogSession:
                 raw_query=query,
             )
 
+
+        if query.kind == "count" and query.subquery is not None:
+            inner = self._execute_query(query.subquery, turn_id)
+            count_val = len(inner.answers)
+            count_ans = ReasonerAnswer(
+                value=count_val,
+                explanation=Explanation(
+                    rules_fired=["count_aggregation"],
+                    fact_ids=[],
+                    path=[],
+                    provenance_assertions=[],
+                ),
+            )
+            reasoner_res = ReasonerResult(
+                query_goal="count",
+                answers=[count_ans],
+            )
+            self.last_query_result = reasoner_res
+            return DialogTurnResult(
+                statement_type="query",
+                summary_text=f"Count: {count_val}",
+                answers=[count_ans],
+                raw_query=query,
+            )
+
+        if query.kind in ("path", "not"):
+            spec = QuerySpec(
+                kind=query.kind,
+                subject=query.subject,
+                predicate=query.predicate,
+                object=query.object,
+                timeout_seconds=float(self.timeout_seconds),
+                max_inferences=int(self.max_inferences),
+            )
+            if not getattr(self.reasoner, "is_available", False):
+                if not self.allow_degraded_fallback:
+                    raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
+                reasoner_res = self._execute_degraded_query(query)
+                prefix = "[Degraded Mode: swipl unavailable] "
+            else:
+                reasoner_res = self.reasoner.query(self.model, spec)
+                prefix = ""
+            self.last_query_result = reasoner_res
+            vals = [str(a.value) for a in reasoner_res.answers]
+            label = "Path" if query.kind == "path" else "Not"
+            summary = f"{prefix}{label}: {', '.join(vals) if vals else 'none'}"
+            return DialogTurnResult(
+                statement_type="query",
+                summary_text=summary,
+                answers=reasoner_res.answers,
+                raw_query=query,
+            )
 
         raise ValueError(f"Unsupported query kind: {query.kind}")
 

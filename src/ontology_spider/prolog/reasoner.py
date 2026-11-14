@@ -239,6 +239,36 @@ class PrologReasoner:
                 f"Result = json([value=json([subject={s}, predicate={p}, object={o}]), "
                 f"rules=['base_fact'], facts=[AsrtId], path=[{s}, {o}]])"
             )
+        elif goal_type == "filter":
+            if not predicate or not req_key or req_val is None:
+                raise ValueError("Filter query requires predicate, filter_key, and filter_val")
+            fk = prolog_safe_string(req_key)
+            fv = prolog_safe_string(req_val)
+            goal_str = (
+                f"filter_match({p}, {fk}, {fv}, Subj, Obj, AsrtId), "
+                f"format(string(Val), '(~w ~w ~w)', [Subj, {p}, Obj]), "
+                f"Result = json([value=Val, rules=['attribute_filter'], facts=[AsrtId], path=[Subj, Obj]])"
+            )
+        elif goal_type == "path":
+            if not subject or not object:
+                raise ValueError("Path query requires subject and object")
+            if predicate:
+                goal_str = (
+                    f"shortest_path_pred({s}, {p}, {o}, Path, FactIds), "
+                    f"atomic_list_concat(Path, ' -> ', Val), "
+                    f"Result = json([value=Val, rules=['shortest_path'], facts=FactIds, path=Path])"
+                )
+            else:
+                goal_str = (
+                    f"shortest_path_anc({s}, {o}, Path, FactIds), "
+                    f"atomic_list_concat(Path, ' -> ', Val), "
+                    f"Result = json([value=Val, rules=['shortest_path'], facts=FactIds, path=Path])"
+                )
+        elif goal_type == "not":
+            goal_str = (
+                f"check_not_triple({s}, {p}, {o}, Val, Rules, FactIds, Path), "
+                f"Result = json([value=Val, rules=Rules, facts=FactIds, path=Path])"
+            )
         elif goal_type == "infinite_loop_test":
             goal_str = "infinite_loop"
         else:

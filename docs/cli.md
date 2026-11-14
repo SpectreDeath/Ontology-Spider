@@ -44,7 +44,7 @@ python -m ontology_spider repl [--file <path>]
 - `where am I` (or `where am i?`): Display the current traversal frame, focal entity, and active constraints.
 - `focus <Entity>`: Move traversal focus to the designated entity.
 - `constrain <key>=<val>`: Push or update an attribute constraint onto the current frame.
-- `explain`: Print an explanation of the current frame context and constraints.
+- `explain`: Print the full provenance and proof trace for the previous query.
 - `validate`: Validate the active model and report any integrity violations.
 - `export <fmt>`: Export the current model to `json`, `dialog`, `dot`, or `html`.
 - `quit` / `exit` / `:q`: Exit the REPL session.

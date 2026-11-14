@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from ontology_spider.api import export_model, load_model
-from ontology_spider.dialog import ParseError, parse_dialog
+from ontology_spider.dialog import DialogQuery, ParseError, parse_dialog
 from ontology_spider.dialog_runner import DialogSession
 from ontology_spider.elicitation import ElicitationManager, ElicitationState
 from ontology_spider.model import OntologyModel
@@ -132,9 +132,11 @@ def run_repl(file_path: str | None = None) -> int:
     model = None
     if file_path:
         p = Path(file_path)
-        if p.is_file():
-            model = load_model(p)
-            print(f"Loaded ontology from {p.name} ({len(model.assertions)} assertions).")
+        if not p.is_file():
+            print(f"Error: Ontology file not found: {p}", file=sys.stderr)
+            return 1
+        model = load_model(p)
+        print(f"Loaded ontology from {p.name} ({len(model.assertions)} assertions).")
 
     traversal = TraversalDialogueManager(
         model=model or OntologyModel(uri="urn:dialog:repl")
@@ -196,7 +198,7 @@ def run_repl(file_path: str | None = None) -> int:
         try:
             doc = parse_dialog(f"dialog {traversal.model.uri}\n{line}")
             for stmt in doc.statements:
-                if stmt.__class__.__name__ == "DialogQuery":
+                if isinstance(stmt, DialogQuery):
                     res = traversal.query(line)
                 else:
                     res = traversal.session.execute_statement(stmt)

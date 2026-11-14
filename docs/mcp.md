@@ -66,6 +66,15 @@ python -m ontology_spider mcp --root . --backend python --timeout 5.0 --max-infe
 8. **`retract`**:
    - Parameters: `session_id` (str), `assertion_id` (str).
    - Removes assertion from the session model.
+9. **`retract_turn`**:
+   - Parameters: `session_id` (str), `turn_id` (str).
+   - Retracts all assertions produced during the specified `turn_id`.
+10. **`session_save`**:
+   - Parameters: `session_id` (str), `path` (str, relative to root).
+   - Persists session model, `turn_counter`, and traversal frame stack to a JSON file within `--root`.
+11. **`session_restore`**:
+   - Parameters: `path` (str, relative to root), `session_id` (optional str).
+   - Restores a saved session from a JSON file within `--root`.
 9. **`run_dialog`**:
    - Parameters: `session_id` (str), `dialog_text` (str).
    - Executes multi-statement `.dialog` syntax against the session.

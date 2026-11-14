@@ -42,6 +42,17 @@ This document defines the canonical meaning, answer deduplication, path derivati
 - **Goal**: Match triples with wildcards (`?`, `*`, `_`).
 - **Deduplication**: Unique by `assertion_id`.
 
+### 1.7 `path(start, target, [predicate])`
+- **Goal**: Find the shortest directed path from `start` to `target` over `predicate` (if specified via `via <predicate>`), or over `subclass_of` / `instance_of` when omitted.
+- **Result**: A single answer `"start -> ... -> target"` if reachable (or `"start"` with empty `fact_ids` when `start == target`), or empty `[]` if unreachable.
+
+### 1.8 `not(subject, predicate, object)`
+- **Goal**: Closed-world negation check over triple patterns (supporting `?`, `*`, `_` wildcards).
+- **Result**: A single answer `"true"` (`rules`: `["closed_world_negation"]`) if no matching assertion exists, or `"false"` (`rules`: `["negation_refuted"]`, `fact_ids`: `[witness_assertion_id]`) if at least one matching assertion exists.
+
+### 1.9 `count(subquery)`
+- **Goal**: Evaluate `subquery` and return a single integer answer equal to `len(subquery_answers)` (`rules`: `["count_aggregation"]`).
+
 ---
 
 ## 2. Deterministic Ordering & Canonical Proof Trace

@@ -116,6 +116,14 @@ def _unescape_string(raw: str) -> str:
     return "".join(out)
 
 
+def _parse_where_value(raw: str) -> str:
+    """Strip surrounding quotes and unescape a `where` clause value."""
+    v = raw.strip()
+    if len(v) >= 2 and ((v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'"))):
+        return _unescape_string(v[1:-1])
+    return v
+
+
 def _parse_attributes(attr_str: str, line_num: int) -> dict[str, Any]:
     """Parse key=value pairs inside brackets, respecting quoted strings with commas."""
     attr_str = attr_str.strip()
@@ -348,12 +356,12 @@ def parse_dialog(text: str) -> DialogDoc:
                 )
 
             # Pattern 4: filter <predicate> where <key>=<val>
-            elif (m_filter := re.match(r"^filter\s+(\S+)\s+where\s+(\S+)\s*=\s*(\S+)$", clean_body, re.IGNORECASE)):
+            elif (m_filter := re.match(r"^filter\s+(\S+)\s+where\s+(\S+)\s*=\s*(.+)$", clean_body, re.IGNORECASE)):
                 parsed_query = DialogQuery(
                     kind="filter",
                     predicate=m_filter.group(1),
                     filter_key=m_filter.group(2),
-                    filter_val=m_filter.group(3).strip('"').strip("'"),
+                    filter_val=_parse_where_value(m_filter.group(3)),
                     raw_text=line,
                     line_num=idx,
                 )
@@ -377,9 +385,9 @@ def parse_dialog(text: str) -> DialogDoc:
                 )
 
             # Pattern 4c: recommend <Class> where <attr> = <val> OR recommend <Class>
-            elif (m_rec := re.match(r"^recommend\s+(\S+)(?:\s+where\s+(\S+)\s*=\s*(\S+))?$", clean_body, re.IGNORECASE)):
+            elif (m_rec := re.match(r"^recommend\s+(\S+)(?:\s+where\s+(\S+)\s*=\s*(.+))?$", clean_body, re.IGNORECASE)):
                 fk = m_rec.group(2) if m_rec.group(2) else None
-                fv = m_rec.group(3).strip('"').strip("'") if m_rec.group(3) else None
+                fv = _parse_where_value(m_rec.group(3)) if m_rec.group(3) else None
                 fattrs = {fk: fv} if fk and fv is not None else {}
                 parsed_query = DialogQuery(
                     kind="recommend",
@@ -390,6 +398,46 @@ def parse_dialog(text: str) -> DialogDoc:
                     raw_text=line,
                     line_num=idx,
                 )
+
+            # Pattern 4d: path [via <pred>] from <X> to <Y>
+            elif (m_path := re.match(r"^path(?:\s+via\s+(\S+))?\s+from\s+(\S+)\s+to\s+(\S+)$", clean_body, re.IGNORECASE)):
+                parsed_query = DialogQuery(
+                    kind="path",
+                    predicate=m_path.group(1) if m_path.group(1) else None,
+                    subject=m_path.group(2),
+                    object=m_path.group(3),
+                    raw_text=line,
+                    line_num=idx,
+                )
+
+            # Pattern 4e: not <subject> <predicate> <object>
+            elif (m_not := re.match(r"^not\s+(\S+)\s+(\S+)\s+(\S+)$", clean_body, re.IGNORECASE)):
+                ns, np, no = m_not.group(1), m_not.group(2), m_not.group(3)
+                parsed_query = DialogQuery(
+                    kind="not",
+                    subject=None if ns in ("?", "*", "_") else ns,
+                    predicate=None if np in ("?", "*", "_") else np,
+                    object=None if no in ("?", "*", "_") else no,
+                    raw_text=line,
+                    line_num=idx,
+                )
+
+            # Pattern 4f: count <inner_query>
+            elif clean_body.lower().startswith("count ") and len(clean_body) > 6:
+                inner_body = clean_body[6:].strip()
+                inner_line = inner_body if inner_body.lower().startswith("query ") else f"query {inner_body}"
+                inner_doc = parse_dialog(f"dialog {uri}\n{inner_line}")
+                inner_q = next(
+                    (s for s in inner_doc.statements if isinstance(s, DialogQuery)),
+                    None,
+                )
+                if inner_q is not None:
+                    parsed_query = DialogQuery(
+                        kind="count",
+                        subquery=inner_q,
+                        raw_text=line,
+                        line_num=idx,
+                    )
 
             # Pattern 5: general triple pattern query: <subject> <predicate> <object>
             elif len(q_tokens := clean_body.split()) == 3:

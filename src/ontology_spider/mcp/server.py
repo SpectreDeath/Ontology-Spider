@@ -6,6 +6,7 @@ tools and resources without external dependencies.
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import sys
 from collections.abc import Callable
@@ -64,12 +65,14 @@ class MCPServer:
 
         if preload_model_path:
             resolved = self._resolve_safe_path(str(preload_model_path))
-            loaded = DialogModelSource(resolved).load()
+            loaded = DialogModelSource(resolved, allowed_root=self.root_dir).load()
             reasoner = self._get_reasoner()
             session = self.sessions.open_session(
                 "default",
                 loaded,
                 reasoner=reasoner,
+                base_dir=self.root_dir,
+                allowed_root=self.root_dir,
                 timeout_seconds=self.timeout_seconds,
                 max_inferences=self.max_inferences,
             )
@@ -151,11 +154,15 @@ class MCPServer:
                     })
 
     def _handle_initialize(self, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            pkg_version = importlib.metadata.version("ontology-spider")
+        except importlib.metadata.PackageNotFoundError:
+            pkg_version = "0.2.0"
         return {
             "protocolVersion": "2024-11-05",
             "serverInfo": {
                 "name": "ontology-spider",
-                "version": "0.1.0",
+                "version": pkg_version,
             },
             "capabilities": {
                 "tools": {},
@@ -254,6 +261,42 @@ class MCPServer:
                         "assertion_id": {"type": "string"},
                     },
                     "required": ["session_id", "assertion_id"],
+                },
+            },
+            {
+                "name": "retract_turn",
+                "description": "Retract all assertions produced during a given turn_id from a session.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string"},
+                        "turn_id": {"type": "string"},
+                    },
+                    "required": ["session_id", "turn_id"],
+                },
+            },
+            {
+                "name": "session_save",
+                "description": "Save a session (model, turn counter, and traversal frame stack) to a JSON file within root.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string"},
+                        "path": {"type": "string", "description": "Relative file path within server root."},
+                    },
+                    "required": ["session_id", "path"],
+                },
+            },
+            {
+                "name": "session_restore",
+                "description": "Restore a previously saved session from a JSON file within root.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Relative file path within server root."},
+                        "session_id": {"type": "string", "description": "Optional override session ID."},
+                    },
+                    "required": ["path"],
                 },
             },
             {
@@ -363,7 +406,17 @@ class MCPServer:
         name = params.get("name")
         args = params.get("arguments", {})
 
-        mutating_tools = {"assert_triple", "declare_entity", "retract", "run_dialog", "focus", "constrain"}
+        mutating_tools = {
+            "assert_triple",
+            "declare_entity",
+            "retract",
+            "retract_turn",
+            "run_dialog",
+            "focus",
+            "constrain",
+            "session_save",
+            "session_restore",
+        }
         if self.read_only and name in mutating_tools:
             raise PermissionError(f"Server is running in read-only mode. Tool '{name}' is forbidden.")
 
@@ -375,13 +428,15 @@ class MCPServer:
             reasoner = self._get_reasoner()
             if model_path:
                 resolved = self._resolve_safe_path(model_path)
-                model = DialogModelSource(resolved).load()
+                model = DialogModelSource(resolved, allowed_root=self.root_dir).load()
                 if len(model.assertions) > self.max_assertions_per_session:
                     raise ValueError(f"Assertion cap exceeded: loaded model has {len(model.assertions)} assertions (cap: {self.max_assertions_per_session}).")
                 session = self.sessions.open_session(
                     sid,
                     model,
                     reasoner=reasoner,
+                    base_dir=self.root_dir,
+                    allowed_root=self.root_dir,
                     timeout_seconds=self.timeout_seconds,
                     max_inferences=self.max_inferences,
                 )
@@ -391,6 +446,8 @@ class MCPServer:
                     sid,
                     OntologyModel(uri=uri),
                     reasoner=reasoner,
+                    base_dir=self.root_dir,
+                    allowed_root=self.root_dir,
                     timeout_seconds=self.timeout_seconds,
                     max_inferences=self.max_inferences,
                 )
@@ -406,6 +463,37 @@ class MCPServer:
         elif name == "session_list":
             sids = self.sessions.list_sessions()
             return {"content": [{"type": "text", "text": json.dumps(sids, indent=2)}], "sessions": sids}
+
+        elif name == "session_restore":
+            from ontology_spider.engine import Session
+
+            if len(self.sessions.list_sessions()) >= self.max_sessions:
+                raise ValueError(f"Session cap exceeded: maximum {self.max_sessions} active sessions allowed.")
+            resolved = self._resolve_safe_path(args["path"])
+            if not resolved.is_file():
+                raise FileNotFoundError(f"Saved session file not found: {args['path']}")
+            data = json.loads(resolved.read_text(encoding="utf-8"))
+            assertions_count = len(data.get("model", {}).get("assertions", []))
+            if assertions_count > self.max_assertions_per_session:
+                raise ValueError(
+                    f"Assertion cap exceeded: saved session has {assertions_count} assertions "
+                    f"(cap: {self.max_assertions_per_session})."
+                )
+            restored = Session.from_dict(
+                data,
+                session_id=args.get("session_id"),
+                reasoner=self._get_reasoner(),
+                base_dir=self.root_dir,
+                allowed_root=self.root_dir,
+                timeout_seconds=self.timeout_seconds,
+                max_inferences=self.max_inferences,
+            )
+            self.sessions.register_session(restored)
+            self.dialogue_managers[restored.session_id] = restored.traversal
+            return {
+                "content": [{"type": "text", "text": f"Restored session '{restored.session_id}' from {args['path']}."}],
+                "sessionId": restored.session_id,
+            }
 
         elif name == "engine_info":
             active_reasoner = self._get_reasoner()
@@ -434,16 +522,21 @@ class MCPServer:
 
         if name == "model_load":
             resolved = self._resolve_safe_path(args["path"])
-            loaded = DialogModelSource(resolved).load()
+            loaded = DialogModelSource(resolved, allowed_root=self.root_dir).load()
             if len(session.model.assertions) + len(loaded.assertions) > self.max_assertions_per_session:
                 raise ValueError(
                     f"Assertion cap exceeded: session has {len(session.model.assertions)} assertions, "
                     f"loading {len(loaded.assertions)} would exceed cap of {self.max_assertions_per_session}."
                 )
             for ent in loaded.entities.values():
-                session.model.upsert_entity(ent.id, **dict(ent.attributes))
+                session.model.upsert_entity(ent.id, name=ent.name, attributes=ent.attributes)
             for asrt in loaded.assertions.values():
-                session.model.add_assertion(asrt.relation, asrt.provenance, **dict(asrt.attributes))
+                session.model.add_assertion(
+                    asrt.relation,
+                    asrt.provenance,
+                    assertion_id=asrt.assertion_id,
+                    attributes=asrt.attributes,
+                )
             return {"content": [{"type": "text", "text": f"Loaded model from {args['path']} into session '{sid}'."}]}
 
         elif name == "assert_triple":
@@ -454,24 +547,66 @@ class MCPServer:
                 args["predicate"],
                 args["object"],
                 source="mcp",
-                **args.get("attributes", {}),
+                attributes=args.get("attributes"),
             )
-            return {"content": [{"type": "text", "text": f"Asserted: ({args['subject']} {args['predicate']} {args['object']}) [{asrt.assertion_id}]"}]}
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Asserted: ({args['subject']} {args['predicate']} {args['object']}) [{asrt.assertion_id}]",
+                    }
+                ],
+                "assertion_id": asrt.assertion_id,
+                "turn_id": asrt.provenance.turn_id,
+            }
 
         elif name == "declare_entity":
             ent = session.declare_entity(args["entity_id"], **args.get("attributes", {}))
             return {"content": [{"type": "text", "text": f"Declared entity: {ent.id}"}]}
 
         elif name == "retract":
-            session.retract_assertion(args["assertion_id"])
-            return {"content": [{"type": "text", "text": f"Retracted assertion {args['assertion_id']}"}]}
+            removed = session.retract_assertion(args["assertion_id"])
+            text = (
+                f"Retracted assertion {args['assertion_id']}"
+                if removed
+                else f"Assertion not found: {args['assertion_id']}"
+            )
+            return {"content": [{"type": "text", "text": text}], "retracted": removed}
+
+        elif name == "retract_turn":
+            retracted = session.retract_by_turn(args["turn_id"])
+            ids = [a.assertion_id for a in retracted]
+            return {
+                "content": [{"type": "text", "text": f"Retracted {len(ids)} assertion(s) from turn '{args['turn_id']}'."}],
+                "retracted_count": len(ids),
+                "retracted_ids": ids,
+            }
+
+        elif name == "session_save":
+            resolved = self._resolve_safe_path(args["path"])
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved.write_text(json.dumps(session.to_dict(), indent=2), encoding="utf-8")
+            return {
+                "content": [{"type": "text", "text": f"Saved session '{sid}' to {args['path']}."}],
+                "path": args["path"],
+            }
 
         elif name == "run_dialog":
-            if len(session.model.assertions) >= self.max_assertions_per_session:
+            from ontology_spider.dialog import DialogAssertion, parse_dialog
+            from ontology_spider.reasoning.base import ReasonerResult
+
+            doc = parse_dialog(f"dialog {session.model.uri}\n{args['dialog_text']}")
+            pending_assertions = sum(1 for s in doc.statements if isinstance(s, DialogAssertion))
+            if len(session.model.assertions) + pending_assertions > self.max_assertions_per_session:
                 raise ValueError(f"Assertion cap exceeded: maximum {self.max_assertions_per_session} assertions allowed per session.")
             res = session.run_dialog(args["dialog_text"])
             if len(session.model.assertions) > self.max_assertions_per_session:
                 raise ValueError(f"Assertion cap exceeded: maximum {self.max_assertions_per_session} assertions allowed per session.")
+            if session.last_query_result is not None:
+                mgr.session.last_query_result = ReasonerResult(
+                    query_goal=session.last_query_result.query_text,
+                    answers=session.last_query_result.raw_answers,
+                )
             return {"content": [{"type": "text", "text": res.summary}]}
 
         elif name == "query":
