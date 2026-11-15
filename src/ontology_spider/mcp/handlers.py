@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ontology_spider.dialog import DialogAssertion, parse_dialog
@@ -235,7 +236,12 @@ def dispatch_tool_call(server: MCPServer, name: str | None, args: dict[str, Any]
         }
     if name == "export":
         fmt = args["format"]
-        exporters = {"json": to_json, "dialog": to_dialog, "dot": to_dot, "html": to_html}
+        exporters: dict[str, Callable[[OntologyModel], str]] = {
+            "json": to_json,
+            "dialog": to_dialog,
+            "dot": to_dot,
+            "html": to_html,
+        }
         exporter = exporters.get(fmt)
         if exporter is None:
             raise ValueError(f"Unknown format: {fmt}")

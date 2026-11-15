@@ -462,8 +462,12 @@ class Engine:
             backends.append("prolog")
         return backends
 
-    def query(self, model: OntologyModel, query_str: str) -> QueryResult:
-        session = Session(model=model)
+    def query(self, model: OntologyModel, query_str: str, *, max_results: int | None = None) -> QueryResult:
+        reasoner: Reasoner | None = None
+        if max_results is not None:
+            prolog = PrologReasoner(max_results=max_results)
+            reasoner = prolog if prolog.is_available else PythonReasoner()
+        session = Session(model=model, reasoner=reasoner)
         results = session.execute(query_str)
         if results:
             return results[-1]

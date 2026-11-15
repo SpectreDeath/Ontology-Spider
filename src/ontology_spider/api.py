@@ -39,10 +39,10 @@ def load_model(source: str | Path | ModelSource) -> OntologyModel:
     return DialogModelSource(s).load()
 
 
-def run_query(model: OntologyModel, query_str: str) -> QueryResult:
+def run_query(model: OntologyModel, query_str: str, *, max_results: int | None = None) -> QueryResult:
     """Execute a query against a model, returning answers, explanations, and provenance."""
     engine = Engine()
-    return engine.query(model, query_str)
+    return engine.query(model, query_str, max_results=max_results)
 
 
 def validate_model(model: OntologyModel) -> list[dict[str, Any]]:

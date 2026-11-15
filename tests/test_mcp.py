@@ -51,7 +51,7 @@ class TestMCPServer(unittest.TestCase):
         server = MCPServer(
             transport=transport,
             read_only=read_only,
-            root_dir=root_dir,
+            root_dir=root_dir or Path(__file__).resolve().parent.parent,
             max_sessions=max_sessions,
             max_assertions_per_session=max_assertions_per_session,
             backend=backend,

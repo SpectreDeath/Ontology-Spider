@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from ontology_spider.harness.generators import (
     generate_chain,
@@ -60,7 +61,7 @@ class TestHarnessProperties(unittest.TestCase):
         self.assertTrue(r.is_available)
         self.assertEqual(r.name, "python")
 
-        model = load_model("examples/drones.dialog")
+        model = load_model(Path(__file__).resolve().parents[1] / "examples" / "drones.dialog")
         # lookup
         res_lookup = r.query(model, QuerySpec(kind="lookup", subject="sky_scout"))
         self.assertTrue(len(res_lookup.answers) >= 1)
@@ -124,6 +125,7 @@ class TestHarnessProperties(unittest.TestCase):
         self.assertIsInstance(q_res.to_dict(), dict)
 
     def test_harness_cli_commands(self):
+        import os
         import tempfile
         from pathlib import Path
 
@@ -134,36 +136,42 @@ class TestHarnessProperties(unittest.TestCase):
             ScenarioResult,
         )
 
-        self.assertEqual(harness_main(["parity", "--model", "examples/tutorial.dialog"]), 0)
-        self.assertEqual(harness_main(["parity", "--model", "examples/missing_file.dialog"]), 1)
-        self.assertEqual(harness_main(["run", "--transport", "inproc"]), 0)
-        self.assertEqual(harness_main(["run", "--transport", "mcp"]), 0)
-        self.assertEqual(harness_main(["run", "--backend", "python"]), 0)
-        if HarnessRunner().prolog.is_available:
-            self.assertEqual(harness_main(["run", "--backend", "prolog"]), 0)
-        self.assertEqual(harness_main(["run", "--dir", "missing_dir"]), 1)
-        self.assertEqual(harness_main(["corpus"]), 0)
+        repo_root = Path(__file__).resolve().parents[1]
+        old_cwd = os.getcwd()
+        os.chdir(repo_root)
+        try:
+            self.assertEqual(harness_main(["parity", "--model", str(repo_root / "examples" / "tutorial.dialog")]), 0)
+            self.assertEqual(harness_main(["parity", "--model", str(repo_root / "examples" / "missing_file.dialog")]), 1)
+            self.assertEqual(harness_main(["run", "--transport", "inproc"]), 0)
+            self.assertEqual(harness_main(["run", "--transport", "mcp"]), 0)
+            self.assertEqual(harness_main(["run", "--backend", "python"]), 0)
+            if HarnessRunner().prolog.is_available:
+                self.assertEqual(harness_main(["run", "--backend", "prolog"]), 0)
+            self.assertEqual(harness_main(["run", "--dir", "missing_dir"]), 1)
+            self.assertEqual(harness_main(["corpus"]), 0)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmppath = Path(tmpdir)
-            rep_json = tmppath / "report.json"
-            rep_md = tmppath / "report.md"
-            self.assertEqual(harness_main(["run", "--report-json", str(rep_json), "--report-md", str(rep_md)]), 0)
-            self.assertTrue(rep_json.is_file())
-            self.assertTrue(rep_md.is_file())
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmppath = Path(tmpdir)
+                rep_json = tmppath / "report.json"
+                rep_md = tmppath / "report.md"
+                self.assertEqual(harness_main(["run", "--report-json", str(rep_json), "--report-md", str(rep_md)]), 0)
+                self.assertTrue(rep_json.is_file())
+                self.assertTrue(rep_md.is_file())
 
-            bench_json = tmppath / "bench.json"
-            budget_json = tmppath / "budget.json"
-            budget_json.write_text('{"chain_50_ancestors_p50_ms": 1000.0}', encoding="utf-8")
-            self.assertEqual(harness_main(["bench", "--save", str(bench_json), "--budget", str(budget_json)]), 0)
-            self.assertTrue(bench_json.is_file())
+                bench_json = tmppath / "bench.json"
+                budget_json = tmppath / "budget.json"
+                budget_json.write_text('{"chain_50_ancestors_p50_ms": 1000.0}', encoding="utf-8")
+                self.assertEqual(harness_main(["bench", "--save", str(bench_json), "--budget", str(budget_json)]), 0)
+                self.assertTrue(bench_json.is_file())
 
-            tight_budget = tmppath / "tight.json"
-            tight_budget.write_text('{"chain_50_ancestors_p50_ms": 0.00001}', encoding="utf-8")
-            self.assertEqual(harness_main(["bench", "--budget", str(tight_budget)]), 2)
+                tight_budget = tmppath / "tight.json"
+                tight_budget.write_text('{"chain_50_ancestors_p50_ms": 0.00001}', encoding="utf-8")
+                self.assertEqual(harness_main(["bench", "--budget", str(tight_budget)]), 2)
 
-        for topo in ["chain", "tree", "lattice", "random_dag", "cyclic"]:
-            self.assertEqual(harness_main(["gen", topo, "--size", "6"]), 0)
+            for topo in ["chain", "tree", "lattice", "random_dag", "cyclic"]:
+                self.assertEqual(harness_main(["gen", topo, "--size", "6"]), 0)
+        finally:
+            os.chdir(old_cwd)
 
         # Dataclass serialization
         sr = ScenarioResult("sc", True, 2, 2, 1.0, True, "ok")
@@ -172,11 +180,12 @@ class TestHarnessProperties(unittest.TestCase):
         self.assertIsInstance(hr.to_dict(), dict)
 
         # Runner individual scenario tests
+        drones_path = str(Path(__file__).resolve().parents[1] / "examples" / "drones.dialog")
         runner = HarnessRunner()
-        res_py = runner.run_scenario({"scenario": "drones", "model": "examples/drones.dialog", "queries": ["query what is sky_scout?"]}, backend="python", transport="inproc")
+        res_py = runner.run_scenario({"scenario": "drones", "model": drones_path, "queries": ["query what is sky_scout?"]}, backend="python", transport="inproc")
         self.assertTrue(res_py.passed)
         if runner.prolog.is_available:
-            res_pl = runner.run_scenario({"scenario": "drones", "model": "examples/drones.dialog", "queries": ["query what is sky_scout?"]}, backend="prolog", transport="inproc")
+            res_pl = runner.run_scenario({"scenario": "drones", "model": drones_path, "queries": ["query what is sky_scout?"]}, backend="prolog", transport="inproc")
             self.assertTrue(res_pl.passed)
 
     def test_dialog_roundtrip_lossless_types_and_provenance(self):
