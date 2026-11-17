@@ -17,7 +17,7 @@ from ontology_spider.export import to_json
 from ontology_spider.mcp.handlers import dispatch_tool_call
 from ontology_spider.mcp.schemas import get_mcp_tools_schema
 from ontology_spider.mcp.transport import StdioTransport
-from ontology_spider.seam import DialogModelSource
+from ontology_spider.seam import load_imported_model
 from ontology_spider.traversal import TraversalDialogueManager
 from ontology_spider.validation import OntologyValidator
 
@@ -64,7 +64,7 @@ class MCPServer:
 
         if preload_model_path:
             resolved = self._resolve_safe_path(str(preload_model_path))
-            loaded = DialogModelSource(resolved, allowed_root=self.root_dir).load()
+            loaded = load_imported_model(resolved, base_dir=self.root_dir, allowed_root=self.root_dir)
             reasoner = self._get_reasoner()
             session = self.sessions.open_session(
                 "default",

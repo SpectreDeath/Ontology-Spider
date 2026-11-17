@@ -7,7 +7,7 @@ from typing import Any
 
 from ontology_spider.dialog import DialogQuery, parse_dialog
 from ontology_spider.dialog_runner import DialogSession, DialogTurnResult
-from ontology_spider.model import OntologyModel
+from ontology_spider.model import OntologyModel, attr_values_equal
 from ontology_spider.prolog.reasoner import PrologReasoner
 from ontology_spider.reasoning.base import ReasonerAnswer, ReasonerResult
 
@@ -118,7 +118,7 @@ class TraversalDialogueManager:
             focus = top.focus_entity
             if focus:
                 ent = self.model.get_entity(focus)
-                if ent and str(ent.attributes.get(key)) != str(value):
+                if ent and not attr_values_equal(ent.attributes.get(key), value):
                     top.status = "aborted"
                     aborted_frames.append(top.frame_id)
                     self.frame_stack.pop()
@@ -200,7 +200,7 @@ class TraversalDialogueManager:
                             if ck in asrt.attributes:
                                 val = asrt.attributes[ck]
                                 break
-                    if val is None or str(val) != str(cv):
+                    if not attr_values_equal(val, cv):
                         satisfies = False
                         break
                 if satisfies:

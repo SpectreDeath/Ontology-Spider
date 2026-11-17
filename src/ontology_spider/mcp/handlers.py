@@ -11,7 +11,7 @@ from ontology_spider.engine import Session
 from ontology_spider.export import to_dialog, to_dot, to_html, to_json
 from ontology_spider.model import OntologyModel
 from ontology_spider.reasoning.base import ReasonerResult
-from ontology_spider.seam import DialogModelSource
+from ontology_spider.seam import load_imported_model
 
 if TYPE_CHECKING:
     from ontology_spider.mcp.server import MCPServer
@@ -39,7 +39,7 @@ def _handle_global_tool(server: MCPServer, name: str, args: dict[str, Any]) -> d
         model_path = args.get("model_path")
         if model_path:
             resolved = server._resolve_safe_path(model_path)
-            model = DialogModelSource(resolved, allowed_root=server.root_dir).load()
+            model = load_imported_model(resolved, base_dir=server.root_dir, allowed_root=server.root_dir)
             if len(model.assertions) > server.max_assertions_per_session:
                 raise ValueError(
                     f"Assertion cap exceeded: loaded model has {len(model.assertions)} assertions "
@@ -122,7 +122,7 @@ def _handle_mutation_tool(
     """Handle session mutation, file import, and persistence tools."""
     if name == "model_load":
         resolved = server._resolve_safe_path(args["path"])
-        loaded = DialogModelSource(resolved, allowed_root=server.root_dir).load()
+        loaded = load_imported_model(resolved, base_dir=server.root_dir, allowed_root=server.root_dir)
         if len(session.model.assertions) + len(loaded.assertions) > server.max_assertions_per_session:
             raise ValueError(
                 f"Assertion cap exceeded: session has {len(session.model.assertions)} assertions, "

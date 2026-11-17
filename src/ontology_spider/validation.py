@@ -337,11 +337,34 @@ class OntologyValidator:
                             cycle_edges = [aid]
                             break
 
+                cycle_edge_records = [
+                    {
+                        "assertion_id": aid,
+                        "subject": model.assertions[aid].relation.subject,
+                        "predicate": model.assertions[aid].relation.predicate,
+                        "object": model.assertions[aid].relation.object,
+                    }
+                    for aid in cycle_edges
+                    if aid in model.assertions
+                ]
+                cycle_nodes: list[str] = []
+                for rec in cycle_edge_records:
+                    if not cycle_nodes:
+                        cycle_nodes.append(rec["subject"])
+                    cycle_nodes.append(rec["object"])
+                cycle_path = " -> ".join(cycle_nodes)
+
                 violations.append(
                     Violation(
                         check_type="cycle_violation",
                         message=f"Directed cycle detected in relation '{pred}' declared acyclic.",
                         offending_assertion_ids=cycle_edges,
+                        details={
+                            "predicate": pred,
+                            "cycle_nodes": cycle_nodes,
+                            "cycle_edges": cycle_edge_records,
+                            "cycle_path": cycle_path,
+                        },
                     )
                 )
 

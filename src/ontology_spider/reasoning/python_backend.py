@@ -6,7 +6,7 @@ import time
 from collections import deque
 from typing import Any
 
-from ontology_spider.model import Assertion, OntologyModel
+from ontology_spider.model import Assertion, OntologyModel, attr_values_equal
 from ontology_spider.reasoning.base import (
     Explanation,
     QueryInferenceLimitError,
@@ -283,7 +283,7 @@ class PythonReasoner(Reasoner):
                 tracker.step()
             val = asrt.attributes.get(filter_key) if filter_key else None
             matched = False
-            if val is not None and str(val) == str(filter_val):
+            if attr_values_equal(val, filter_val):
                 matched = True
             else:
                 sub_ent = model.get_entity(asrt.relation.subject)
@@ -291,7 +291,7 @@ class PythonReasoner(Reasoner):
                     ent_val = (
                         sub_ent.attributes.get(filter_key) if filter_key else None
                     )
-                    if ent_val is not None and str(ent_val) == str(filter_val):
+                    if attr_values_equal(ent_val, filter_val):
                         matched = True
             if matched:
                 answers.append(
@@ -361,7 +361,7 @@ class PythonReasoner(Reasoner):
                         ent = model.get_entity(cand)
                         if ent:
                             val = ent.attributes.get(fk)
-                    if val is None or str(val) != str(fv):
+                    if not attr_values_equal(val, fv):
                         match_all = False
                         break
 

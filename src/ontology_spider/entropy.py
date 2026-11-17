@@ -8,7 +8,14 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Any
 
-from ontology_spider.model import DOMAIN, RANGE, SUBCLASS_OF, OntologyModel
+from ontology_spider.model import (
+    BUILTIN_SCHEMA_PREDICATES,
+    DOMAIN,
+    INSTANCE_OF,
+    RANGE,
+    SUBCLASS_OF,
+    OntologyModel,
+)
 from ontology_spider.validation import OntologyValidator
 
 
@@ -52,15 +59,34 @@ def rank_discriminating_attributes(
                 entropy_bits -= p * math.log2(p)
         coverage = n_present / total
         laya_score = round(entropy_bits * coverage, 4)
+        distinct_count = len(counts)
+        uniqueness_ratio = distinct_count / n_present
+        is_identifier_like = n_present >= 10 and uniqueness_ratio >= 0.80
+        cardinality_factor = (
+            (n_present - distinct_count) / max(1, n_present - 1)
+            if n_present >= 10
+            else 1.0
+        )
+        classification_score = round(laya_score * cardinality_factor, 4)
         ranked.append({
             "attribute": attr_name,
             "entropy_bits": round(entropy_bits, 4),
             "coverage": round(coverage, 4),
-            "distinct_values": len(counts),
+            "distinct_values": distinct_count,
             "laya_score": laya_score,
+            "classification_score": classification_score,
+            "is_identifier_like": is_identifier_like,
         })
 
-    ranked.sort(key=lambda item: (-item["laya_score"], -item["entropy_bits"], item["attribute"]))
+    ranked.sort(
+        key=lambda item: (
+            bool(item["is_identifier_like"]),
+            -item["classification_score"],
+            -item["laya_score"],
+            -item["entropy_bits"],
+            item["attribute"],
+        )
+    )
     return ranked
 
 
@@ -111,16 +137,34 @@ def evaluate_competency_questions(
     )
     coherence = 1.0 if not violations else round(max(0.0, 1.0 - 0.25 * len(violations)), 4)
 
-    total_assertions = len(model.assertions)
-    taxonomic_assertions = sum(
-        1 for a in model.assertions.values() if a.relation.predicate == SUBCLASS_OF
+    subclass_asrts = [
+        a for a in model.assertions.values() if a.relation.predicate == SUBCLASS_OF
+    ]
+    taxonomic_assertions = len(subclass_asrts)
+    all_classes = (
+        {a.relation.subject for a in subclass_asrts}
+        | {a.relation.object for a in subclass_asrts}
+        | {
+            a.relation.object
+            for a in model.assertions.values()
+            if a.relation.predicate == INSTANCE_OF
+        }
     )
     extendibility = (
-        round(min(1.0, taxonomic_assertions / max(1, total_assertions)), 4)
-        if total_assertions > 0
+        round(min(1.0, taxonomic_assertions / max(1, len(all_classes))), 4)
+        if taxonomic_assertions > 0
         else 0.0
     )
-    minimal_encoding_bias = 1.0
+    non_builtin_preds = {
+        a.relation.predicate
+        for a in model.assertions.values()
+        if a.relation.predicate not in BUILTIN_SCHEMA_PREDICATES
+    }
+    minimal_encoding_bias = (
+        round(len(relations_with_schema & non_builtin_preds) / len(non_builtin_preds), 4)
+        if non_builtin_preds
+        else 1.0
+    )
     evaluated_count = len(question_results)
     minimal_commitment = (
         round(answered_count / evaluated_count, 4) if evaluated_count > 0 else 1.0

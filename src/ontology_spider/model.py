@@ -28,6 +28,24 @@ BUILTIN_SCHEMA_PREDICATES = frozenset({
 })
 
 
+def normalize_attr_scalar(value: Any) -> str:
+    """Normalize attribute scalars consistently across Python, .dialog, and Prolog."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    s = str(value)
+    low = s.lower()
+    if low in ("true", "false"):
+        return low
+    return s
+
+
+def attr_values_equal(stored_val: Any, query_val: Any) -> bool:
+    """Compare stored and queried attribute values with bool/'true'/'True' parity."""
+    if stored_val is None or query_val is None:
+        return False
+    return normalize_attr_scalar(stored_val) == normalize_attr_scalar(query_val)
+
+
 @dataclass(frozen=True)
 class Entity:
     """An entity (class, instance, or property) in the ontology."""

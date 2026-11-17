@@ -10,7 +10,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-from ontology_spider.model import OntologyModel
+from ontology_spider.model import OntologyModel, normalize_attr_scalar
 from ontology_spider.prolog.translator import model_to_prolog_facts, prolog_safe_string
 from ontology_spider.prolog.worker import PersistentPrologWorker
 from ontology_spider.reasoning.base import (
@@ -212,7 +212,8 @@ class PrologReasoner:
                 attr_terms = []
                 for k, v in all_attrs.items():
                     safe_k = prolog_safe_string(k)
-                    safe_v = prolog_safe_string(v)
+                    norm_v = normalize_attr_scalar(v) if isinstance(v, bool) or str(v).lower() in ("true", "false") else v
+                    safe_v = prolog_safe_string(norm_v)
                     attr_terms.append(f"{safe_k}={safe_v}")
                 attr_list_str = "[" + ", ".join(attr_terms) + "]"
                 goal_str = (
@@ -243,7 +244,8 @@ class PrologReasoner:
             if not predicate or not req_key or req_val is None:
                 raise ValueError("Filter query requires predicate, filter_key, and filter_val")
             fk = prolog_safe_string(req_key)
-            fv = prolog_safe_string(req_val)
+            norm_fv = normalize_attr_scalar(req_val) if isinstance(req_val, bool) or str(req_val).lower() in ("true", "false") else req_val
+            fv = prolog_safe_string(norm_fv)
             goal_str = (
                 f"filter_match({p}, {fk}, {fv}, Subj, Obj, AsrtId), "
                 f"format(string(Val), '(~w ~w ~w)', [Subj, {p}, Obj]), "

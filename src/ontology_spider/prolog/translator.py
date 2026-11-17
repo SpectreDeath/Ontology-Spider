@@ -10,6 +10,7 @@ from ontology_spider.model import (
     OntologyModel,
     Provenance,
     Relation,
+    normalize_attr_scalar,
 )
 
 
@@ -100,14 +101,14 @@ def model_to_prolog_facts(model: OntologyModel) -> str:
 
         for k, v in asrt.attributes.items():
             ek = prolog_safe_string(k)
-            ev = prolog_safe_string(v)
+            ev = prolog_safe_string(normalize_attr_scalar(v) if isinstance(v, bool) or str(v).lower() in ("true", "false") else v)
             lines.append(f"attribute({aid}, {ek}, {ev}).")
 
     for ent in model.entities.values():
         eid = prolog_safe_string(ent.id)
         for k, v in ent.attributes.items():
             ek = prolog_safe_string(k)
-            ev = prolog_safe_string(v)
+            ev = prolog_safe_string(normalize_attr_scalar(v) if isinstance(v, bool) or str(v).lower() in ("true", "false") else v)
             lines.append(f"attribute({eid}, {ek}, {ev}).")
 
     return "\n".join(lines) + "\n"

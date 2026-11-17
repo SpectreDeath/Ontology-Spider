@@ -18,6 +18,7 @@ from ontology_spider.model import (
     OntologyModel,
     Provenance,
     Relation,
+    attr_values_equal,
 )
 from ontology_spider.prolog.reasoner import (
     Explanation,
@@ -324,14 +325,14 @@ class DialogSession:
             fval = query.filter_val
             for asrt in self.model.query(predicate=query.predicate):
                 val = asrt.attributes.get(fkey)
-                if val is not None and str(val) == str(fval):
+                if attr_values_equal(val, fval):
                     matching.append(asrt)
                     continue
                 # Check entity attributes as well
                 sub_ent = self.model.get_entity(asrt.relation.subject)
                 if sub_ent:
                     ent_val = sub_ent.attributes.get(fkey)
-                    if ent_val is not None and str(ent_val) == str(fval):
+                    if attr_values_equal(ent_val, fval):
                         matching.append(asrt)
 
             answers = [
