@@ -596,7 +596,7 @@ class TestMCPServer(unittest.TestCase):
         from ontology_spider.reasoning.python_backend import PythonReasoner
 
         model = generate_chain(10000)
-        session = Session(model=model, reasoner=PythonReasoner(), timeout_seconds=10.0)
+        session = Session(model=model, reasoner=PythonReasoner(max_results=20_000), timeout_seconds=10.0)
 
         tracemalloc.start()
         t0 = time.monotonic()
@@ -619,7 +619,7 @@ class TestMCPServer(unittest.TestCase):
         self.assertLessEqual(elapsed, max_elapsed)
 
         # Also assert tight timeout terminates deterministically
-        session_to = Session(model=model, reasoner=PythonReasoner(), timeout_seconds=0.05)
+        session_to = Session(model=model, reasoner=PythonReasoner(max_results=20_000), timeout_seconds=0.05)
         with self.assertRaises(QueryTimeoutError):
             session_to.execute("query ancestors of c_9999")
 
@@ -711,6 +711,29 @@ class TestMCPHardening(unittest.TestCase):
             self.assertIn("focus='a'", responses[10]["result"]["content"][0]["text"])
             self.assertIn("tier=1", responses[10]["result"]["content"][0]["text"])
             self.assertIn("b", responses[11]["result"]["content"][0]["text"])
+
+    def test_mcp_query_max_results_cap_exposed_and_enforced(self):
+        for backend in ("python", None):
+            msgs = [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "session_open", "arguments": {"session_id": "s_cap"}}},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "a", "predicate": "subclass_of", "object": "b"}}},
+                {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "b", "predicate": "subclass_of", "object": "c"}}},
+                {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "assert_triple", "arguments": {"session_id": "s_cap", "subject": "c", "predicate": "subclass_of", "object": "d"}}},
+                {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_cap", "query": "query ancestors of a", "max_results": 3}}},
+                {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "query", "arguments": {"session_id": "s_cap", "query": "query ancestors of a", "max_results": 2}}},
+            ]
+            raw_in = "\n".join(json.dumps(m) for m in msgs) + "\n"
+            transport = FakeStreamTransport(raw_in)
+            server = MCPServer(transport=transport, backend=backend)
+            server.run()
+            responses = transport.get_output_messages()
+
+            query_tool = next(t for t in responses[0]["result"]["tools"] if t["name"] == "query")
+            self.assertIn("max_results", query_tool["inputSchema"]["properties"])
+            self.assertEqual(len(responses[5]["result"]["answers"]), 3)
+            self.assertEqual(responses[6]["error"]["code"], -32000)
+            self.assertIn("exceeds max_results cap", responses[6]["error"]["message"])
 
 
 if __name__ == "__main__":

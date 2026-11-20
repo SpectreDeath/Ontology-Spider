@@ -221,7 +221,10 @@ def dispatch_tool_call(server: MCPServer, name: str | None, args: dict[str, Any]
         return mutation_result
 
     if name == "query":
-        q_res = mgr.query(args["query"])
+        max_res = args.get("max_results")
+        if max_res is not None and (isinstance(max_res, bool) or not isinstance(max_res, int) or max_res <= 0):
+            raise ValueError("max_results must be a positive integer.")
+        q_res = mgr.query(args["query"], max_results=max_res)
         return {
             "content": [{"type": "text", "text": q_res.summary_text}],
             "answers": [ans.to_dict() if hasattr(ans, "to_dict") else {"value": str(ans)} for ans in q_res.answers],

@@ -27,7 +27,7 @@ from ontology_spider.prolog.reasoner import (
     ReasonerAnswer,
     ReasonerResult,
 )
-from ontology_spider.reasoning.base import QuerySpec
+from ontology_spider.reasoning.base import QueryExecutionError, QuerySpec
 from ontology_spider.reasoning.python_backend import PythonReasoner
 from ontology_spider.seam import load_imported_model
 
@@ -66,6 +66,8 @@ class DialogSession:
     def execute_statement(
         self,
         stmt: DialogImport | DialogEntityDecl | DialogAssertion | DialogQuery,
+        *,
+        max_results: int | None = None,
     ) -> DialogTurnResult:
         self.turn_counter += 1
         turn_id = f"turn_{self.turn_counter}"
@@ -129,7 +131,7 @@ class DialogSession:
             return res
 
         if isinstance(stmt, DialogQuery):
-            res = self._execute_query(stmt, turn_id)
+            res = self._execute_query(stmt, turn_id, max_results=max_results)
             self.history.append(res)
             return res
 
@@ -146,9 +148,18 @@ class DialogSession:
         except ValueError:
             return s
 
-    def _execute_degraded_query(self, query: DialogQuery) -> ReasonerResult:
+    def _effective_max_results(self, max_results: int | None = None) -> int:
+        cap = max_results if max_results is not None else getattr(self.reasoner, "max_results", 1000)
+        if isinstance(cap, bool) or not isinstance(cap, int) or cap <= 0:
+            raise ValueError("max_results must be a positive integer")
+        return int(cap)
+
+    def _execute_degraded_query(
+        self, query: DialogQuery, *, max_results: int | None = None
+    ) -> ReasonerResult:
         cls_name = query.object or query.subject or ""
         f_val = self._coerce_val(query.filter_val) if query.filter_val is not None else None
+        eff_cap = self._effective_max_results(max_results)
         spec = QuerySpec(
             kind=query.kind,
             subject=cls_name if query.kind == "recommend" else query.subject,
@@ -159,13 +170,17 @@ class DialogSession:
             filter_attributes=dict(query.filter_attributes) if query.filter_attributes else {},
             timeout_seconds=float(self.timeout_seconds),
             max_inferences=int(self.max_inferences),
+            max_results=eff_cap,
         )
-        return PythonReasoner().query(self.model, spec)
+        return PythonReasoner(max_results=eff_cap).query(self.model, spec)
 
-    def _execute_query(self, query: DialogQuery, turn_id: str) -> DialogTurnResult:
+    def _execute_query(
+        self, query: DialogQuery, turn_id: str, *, max_results: int | None = None
+    ) -> DialogTurnResult:
+        eff_cap = self._effective_max_results(max_results)
         if query.kind == "explain":
             if query.subquery is not None:
-                self._execute_query(query.subquery, turn_id)
+                self._execute_query(query.subquery, turn_id, max_results=eff_cap)
 
             if not self.last_query_result or not self.last_query_result.answers:
                 return DialogTurnResult(
@@ -218,6 +233,10 @@ class DialogSession:
                 )
                 answers.append(ans)
 
+            if len(answers) > eff_cap:
+                raise QueryExecutionError(
+                    f"Query result count ({len(answers)}) exceeds max_results cap ({eff_cap})."
+                )
             reasoner_res = ReasonerResult(
                 query_goal=f"lookup({subject})",
                 answers=answers,
@@ -237,11 +256,12 @@ class DialogSession:
                 subject=query.subject,
                 timeout_seconds=float(self.timeout_seconds),
                 max_inferences=int(self.max_inferences),
+                max_results=eff_cap,
             )
             if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
-                reasoner_res = self._execute_degraded_query(query)
+                reasoner_res = self._execute_degraded_query(query, max_results=eff_cap)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
                 reasoner_res = self.reasoner.query(self.model, spec)
@@ -263,11 +283,12 @@ class DialogSession:
                 predicate=query.predicate,
                 timeout_seconds=float(self.timeout_seconds),
                 max_inferences=int(self.max_inferences),
+                max_results=eff_cap,
             )
             if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
-                reasoner_res = self._execute_degraded_query(query)
+                reasoner_res = self._execute_degraded_query(query, max_results=eff_cap)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
                 reasoner_res = self.reasoner.query(self.model, spec)
@@ -294,11 +315,12 @@ class DialogSession:
                 filter_attributes=dict(query.filter_attributes) if query.filter_attributes else {},
                 timeout_seconds=float(self.timeout_seconds),
                 max_inferences=int(self.max_inferences),
+                max_results=eff_cap,
             )
             if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
-                reasoner_res = self._execute_degraded_query(query)
+                reasoner_res = self._execute_degraded_query(query, max_results=eff_cap)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
                 reasoner_res = self.reasoner.query(self.model, spec)
@@ -347,6 +369,10 @@ class DialogSession:
                 )
                 for a in matching
             ]
+            if len(answers) > eff_cap:
+                raise QueryExecutionError(
+                    f"Query result count ({len(answers)}) exceeds max_results cap ({eff_cap})."
+                )
             reasoner_res = ReasonerResult(
                 query_goal=f"filter({query.predicate}, {query.filter_key}={query.filter_val})",
                 answers=answers,
@@ -369,11 +395,12 @@ class DialogSession:
                 object=query.object,
                 timeout_seconds=float(self.timeout_seconds),
                 max_inferences=int(self.max_inferences),
+                max_results=eff_cap,
             )
             if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
-                reasoner_res = self._execute_degraded_query(query)
+                reasoner_res = self._execute_degraded_query(query, max_results=eff_cap)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
                 reasoner_res = self.reasoner.query(self.model, spec)
@@ -393,7 +420,7 @@ class DialogSession:
 
 
         if query.kind == "count" and query.subquery is not None:
-            inner = self._execute_query(query.subquery, turn_id)
+            inner = self._execute_query(query.subquery, turn_id, max_results=eff_cap)
             count_val = len(inner.answers)
             count_ans = ReasonerAnswer(
                 value=count_val,
@@ -424,11 +451,12 @@ class DialogSession:
                 object=query.object,
                 timeout_seconds=float(self.timeout_seconds),
                 max_inferences=int(self.max_inferences),
+                max_results=eff_cap,
             )
             if not getattr(self.reasoner, "is_available", False):
                 if not self.allow_degraded_fallback:
                     raise PrologUnavailableError("SWI-Prolog (swipl) was not found.")
-                reasoner_res = self._execute_degraded_query(query)
+                reasoner_res = self._execute_degraded_query(query, max_results=eff_cap)
                 prefix = "[Degraded Mode: swipl unavailable] "
             else:
                 reasoner_res = self.reasoner.query(self.model, spec)

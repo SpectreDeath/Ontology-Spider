@@ -127,6 +127,8 @@ class Session:
     def execute_statement(
         self,
         stmt: DialogImport | DialogEntityDecl | DialogAssertion | DialogQuery,
+        *,
+        max_results: int | None = None,
     ) -> QueryResult:
         self.turn_counter += 1
         turn_id = f"turn_{self.turn_counter}"
@@ -192,7 +194,7 @@ class Session:
             )
 
         if isinstance(stmt, DialogQuery):
-            return self._execute_query(stmt)
+            return self._execute_query(stmt, max_results=max_results)
 
         raise ValueError(f"Unknown statement: {stmt}")
 
@@ -274,10 +276,10 @@ class Session:
             return results[-1]
         return QueryResult(query_text=dialog_text, statement_type="batch", summary="Empty dialog executed.")
 
-    def _execute_query(self, query: DialogQuery) -> QueryResult:
+    def _execute_query(self, query: DialogQuery, *, max_results: int | None = None) -> QueryResult:
         if query.kind == "explain":
             if query.subquery is not None:
-                self._execute_query(query.subquery)
+                self._execute_query(query.subquery, max_results=max_results)
 
             if not self.last_query_result or not self.last_query_result.raw_answers:
                 return QueryResult(
@@ -304,7 +306,7 @@ class Session:
             )
 
         if query.kind == "count" and query.subquery is not None:
-            inner = self._execute_query(query.subquery)
+            inner = self._execute_query(query.subquery, max_results=max_results)
             count_val = len(inner.raw_answers)
             count_exp = Explanation(
                 rules_fired=["count_aggregation"],
@@ -343,6 +345,7 @@ class Session:
             filter_attributes=query.filter_attributes,
             timeout_seconds=float(self.timeout_seconds),
             max_inferences=int(self.max_inferences),
+            max_results=max_results,
         )
 
         res = self.reasoner.query(self.model, spec)
@@ -466,7 +469,7 @@ class Engine:
         reasoner: Reasoner | None = None
         if max_results is not None:
             prolog = PrologReasoner(max_results=max_results)
-            reasoner = prolog if prolog.is_available else PythonReasoner()
+            reasoner = prolog if prolog.is_available else PythonReasoner(max_results=max_results)
         session = Session(model=model, reasoner=reasoner)
         results = session.execute(query_str)
         if results:

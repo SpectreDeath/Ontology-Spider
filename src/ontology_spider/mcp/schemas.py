@@ -142,6 +142,11 @@ def get_mcp_tools_schema() -> list[dict[str, Any]]:
                 "properties": {
                     "session_id": {"type": "string"},
                     "query": {"type": "string", "description": "e.g. 'query what is felix?' or 'query recommend delivery_drone'"},
+                    "max_results": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Optional maximum result count before raising QueryExecutionError (default: 1000).",
+                    },
                 },
                 "required": ["session_id", "query"],
             },

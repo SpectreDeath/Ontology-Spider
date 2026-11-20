@@ -133,7 +133,7 @@ class TraversalDialogueManager:
             msg += f" Aborted conflicting subdialogue frames: {', '.join(aborted_frames)}."
         return msg
 
-    def query(self, query_text: str) -> DialogTurnResult:
+    def query(self, query_text: str, *, max_results: int | None = None) -> DialogTurnResult:
         """Execute a query turn within the active conversational frame."""
         clean = query_text.strip()
         doc = parse_dialog(f"dialog {self.model.uri}\n{clean}")
@@ -162,7 +162,7 @@ class TraversalDialogueManager:
                 line_num=stmt.line_num,
             )
 
-        result = self.session.execute_statement(stmt)
+        result = self.session.execute_statement(stmt, max_results=max_results)
 
         # Apply active frame constraints to filter returned answers when appropriate
         if self.current_frame.active_constraints and result.answers:

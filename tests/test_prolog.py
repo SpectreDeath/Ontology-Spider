@@ -312,6 +312,66 @@ class TestPrologReasoner(unittest.TestCase):
         self.assertEqual(list(worker._stderr_ring), ["ERROR: syntax error in stream", "WARN: detail"])
         self.assertIn("ERROR: syntax error in stream | WARN: detail", worker._format_stderr_suffix())
 
+    def test_python_reasoner_max_results_cap_and_default_1000(self):
+        from ontology_spider.harness.generators import generate_chain
+        from ontology_spider.reasoning.base import QueryExecutionError
+        from ontology_spider.reasoning.python_backend import PythonReasoner
+
+        default_py = PythonReasoner()
+        self.assertEqual(default_py.max_results, 1000)
+
+        chain_1005 = generate_chain(1005)
+        with self.assertRaises(QueryExecutionError) as ctx:
+            default_py.query(chain_1005, goal_type="ancestors", subject="c_1004")
+        self.assertIn("exceeds max_results cap", str(ctx.exception))
+
+        model = OntologyModel(uri="urn:test:py_max_results")
+        p = Provenance(source="test")
+        model.add_assertion(Relation("a", "subclass_of", "b"), p)
+        model.add_assertion(Relation("b", "subclass_of", "c"), p)
+        model.add_assertion(Relation("c", "subclass_of", "d"), p)
+
+        with self.assertRaises(QueryExecutionError) as ctx_small:
+            PythonReasoner(max_results=2).query(model, goal_type="ancestors", subject="a")
+        self.assertIn("exceeds max_results cap", str(ctx_small.exception))
+
+        ok_res = PythonReasoner(max_results=3).query(model, goal_type="ancestors", subject="a")
+        self.assertEqual([a.value for a in ok_res.answers], ["b", "c", "d"])
+
+    def test_engine_query_max_results_parity_both_backends(self):
+        from unittest.mock import patch
+
+        from ontology_spider.engine import Engine
+        from ontology_spider.reasoning.base import QueryExecutionError
+        from ontology_spider.reasoning.python_backend import PythonReasoner
+
+        model = OntologyModel(uri="urn:test:parity_max_results")
+        p = Provenance(source="test")
+        model.add_assertion(Relation("a", "subclass_of", "b"), p)
+        model.add_assertion(Relation("b", "subclass_of", "c"), p)
+        model.add_assertion(Relation("c", "subclass_of", "d"), p)
+
+        py_res = PythonReasoner(max_results=5).query(model, goal_type="ancestors", subject="a")
+        self.assertEqual([a.value for a in py_res.answers], ["b", "c", "d"])
+
+        # Fallback path in Engine.query when Prolog is unavailable must also honor max_results
+        with patch.object(PrologReasoner, "is_available", False):
+            with self.assertRaises(QueryExecutionError) as ctx_fb:
+                Engine().query(model, "query ancestors of a", max_results=2)
+            self.assertIn("exceeds max_results cap", str(ctx_fb.exception))
+            fb_ok = Engine().query(model, "query ancestors of a", max_results=5)
+            self.assertEqual([a["value"] for a in fb_ok.answers], ["b", "c", "d"])
+
+        if self.reasoner.is_available:
+            with self.assertRaises(QueryExecutionError) as ctx_pl:
+                Engine().query(model, "query ancestors of a", max_results=2)
+            self.assertIn("exceeds max_results cap", str(ctx_pl.exception))
+            pl_ok = Engine().query(model, "query ancestors of a", max_results=5)
+            self.assertEqual(
+                [a["value"] for a in pl_ok.answers],
+                [a["value"] for a in fb_ok.answers],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

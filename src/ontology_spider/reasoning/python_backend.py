@@ -9,6 +9,7 @@ from typing import Any
 from ontology_spider.model import Assertion, OntologyModel, attr_values_equal
 from ontology_spider.reasoning.base import (
     Explanation,
+    QueryExecutionError,
     QueryInferenceLimitError,
     QuerySpec,
     QueryTimeoutError,
@@ -43,6 +44,11 @@ class _PythonQueryTracker:
 class PythonReasoner(Reasoner):
     """Pure Python reasoner implementing deterministic graph queries."""
 
+    def __init__(self, max_results: int = 1000) -> None:
+        if isinstance(max_results, bool) or not isinstance(max_results, int) or max_results <= 0:
+            raise ValueError("max_results must be a positive integer")
+        self.max_results = int(max_results)
+
     @property
     def is_available(self) -> bool:
         return True
@@ -64,6 +70,7 @@ class PythonReasoner(Reasoner):
         filter_attributes: dict[str, Any] | None = None,
         timeout_seconds: float = 10.0,
         max_inferences: int = 1_000_000,
+        max_results: int | None = None,
         **kwargs: Any,
     ) -> ReasonerResult:
         if isinstance(spec, QuerySpec) or hasattr(spec, "kind"):
@@ -82,22 +89,28 @@ class PythonReasoner(Reasoner):
                 filter_attributes=filter_attributes or {},
                 timeout_seconds=float(timeout_seconds),
                 max_inferences=int(max_inferences),
+                max_results=max_results,
             )
+
+        spec_cap = getattr(actual_spec, "max_results", None)
+        eff_cap = spec_cap if spec_cap is not None else (max_results if max_results is not None else self.max_results)
+        if isinstance(eff_cap, bool) or not isinstance(eff_cap, int) or eff_cap <= 0:
+            raise ValueError("max_results must be a positive integer")
 
         tracker = _PythonQueryTracker(
             actual_spec.timeout_seconds, actual_spec.max_inferences
         )
 
         if actual_spec.kind == "lookup":
-            return self._query_lookup(model, actual_spec.subject or "", tracker)
+            result = self._query_lookup(model, actual_spec.subject or "", tracker)
         elif actual_spec.kind == "ancestors":
-            return self._query_ancestors(model, actual_spec.subject or "", tracker)
+            result = self._query_ancestors(model, actual_spec.subject or "", tracker)
         elif actual_spec.kind == "transitive":
-            return self._query_transitive(
+            result = self._query_transitive(
                 model, actual_spec.subject or "", actual_spec.predicate or "", tracker
             )
         elif actual_spec.kind == "pattern":
-            return self._query_pattern(
+            result = self._query_pattern(
                 model,
                 actual_spec.subject,
                 actual_spec.predicate,
@@ -105,7 +118,7 @@ class PythonReasoner(Reasoner):
                 tracker,
             )
         elif actual_spec.kind == "filter":
-            return self._query_filter(
+            result = self._query_filter(
                 model,
                 actual_spec.predicate or "",
                 actual_spec.filter_key,
@@ -113,9 +126,9 @@ class PythonReasoner(Reasoner):
                 tracker,
             )
         elif actual_spec.kind == "recommend":
-            return self._query_recommend(model, actual_spec, tracker)
+            result = self._query_recommend(model, actual_spec, tracker)
         elif actual_spec.kind == "path":
-            return self._query_path(
+            result = self._query_path(
                 model,
                 actual_spec.subject or "",
                 actual_spec.object or "",
@@ -123,7 +136,7 @@ class PythonReasoner(Reasoner):
                 tracker,
             )
         elif actual_spec.kind == "not":
-            return self._query_not(
+            result = self._query_not(
                 model,
                 actual_spec.subject,
                 actual_spec.predicate,
@@ -131,7 +144,13 @@ class PythonReasoner(Reasoner):
                 tracker,
             )
         else:
-            return ReasonerResult(query_goal=actual_spec.kind, answers=[])
+            result = ReasonerResult(query_goal=actual_spec.kind, answers=[])
+
+        if len(result.answers) > eff_cap:
+            raise QueryExecutionError(
+                f"Query result count ({len(result.answers)}) exceeds max_results cap ({eff_cap})."
+            )
+        return result
 
     def _query_lookup(
         self,

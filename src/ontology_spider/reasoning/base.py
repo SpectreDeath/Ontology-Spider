@@ -78,7 +78,7 @@ class ReasonerResult:
 @dataclass(frozen=True)
 class QuerySpec:
     """Standardized representation of a query passed to any reasoner backend."""
-    kind: str  # "lookup", "ancestors", "transitive", "recommend", "filter", "pattern"
+    kind: str  # "lookup", "ancestors", "transitive", "recommend", "filter", "pattern", "path", "not", "count"
     subject: str | None = None
     predicate: str | None = None
     object: str | None = None
@@ -87,6 +87,7 @@ class QuerySpec:
     filter_attributes: Mapping[str, Any] = field(default_factory=dict)
     timeout_seconds: float = 10.0
     max_inferences: int = 1_000_000
+    max_results: int | None = None
 
 
 class QueryExecutionError(Exception):

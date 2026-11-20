@@ -85,9 +85,11 @@ class PrologReasoner:
     def __init__(
         self, swipl_path: str | None = None, max_results: int = 1000
     ) -> None:
+        if isinstance(max_results, bool) or not isinstance(max_results, int) or max_results <= 0:
+            raise ValueError("max_results must be a positive integer")
         self.swipl_path = swipl_path or find_swipl_executable()
         self.rules_path = Path(__file__).parent / "rules.pl"
-        self.max_results = max_results
+        self.max_results = int(max_results)
         self._facts_cache: OrderedDict[tuple[str, int], str] = OrderedDict()
         self._cache_capacity: int = 8
 
@@ -132,6 +134,7 @@ class PrologReasoner:
             filter_attrs = dict(spec.filter_attributes)
             to = spec.timeout_seconds
             mi = spec.max_inferences
+            spec_cap = spec.max_results
         else:
             g_type = str(spec)
             s = subject
@@ -142,6 +145,7 @@ class PrologReasoner:
             filter_attrs = dict(kwargs.get("filter_attributes", {}))
             to = timeout_seconds
             mi = max_inferences
+            spec_cap = kwargs.get("max_results")
 
         with self._lock:
             return self._execute_under_lock(
@@ -155,6 +159,7 @@ class PrologReasoner:
                 filter_attributes=filter_attrs,
                 timeout_seconds=to,
                 max_inferences=mi,
+                max_results=spec_cap,
             )
 
     def _execute_under_lock(
@@ -169,6 +174,7 @@ class PrologReasoner:
         timeout_seconds: float,
         max_inferences: int,
         filter_attributes: dict[str, Any] | None = None,
+        max_results: int | None = None,
     ) -> ReasonerResult:
         model_uuid = getattr(model, "uuid", str(id(model)))
         cache_key = (model_uuid, getattr(model, "version", 0))
@@ -308,9 +314,12 @@ class PrologReasoner:
             raise PrologExecutionError(f"Prolog error: {data.get('error')}")
 
         raw_answers = data.get("answers", [])
-        if len(raw_answers) > self.max_results:
+        eff_cap = max_results if max_results is not None else self.max_results
+        if isinstance(eff_cap, bool) or not isinstance(eff_cap, int) or eff_cap <= 0:
+            raise ValueError("max_results must be a positive integer")
+        if len(raw_answers) > eff_cap:
             raise PrologExecutionError(
-                f"Query result count ({len(raw_answers)}) exceeds max_results cap ({self.max_results})."
+                f"Query result count ({len(raw_answers)}) exceeds max_results cap ({eff_cap})."
             )
 
         answers: list[ReasonerAnswer] = []
