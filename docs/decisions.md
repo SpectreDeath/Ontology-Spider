@@ -236,10 +236,11 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Rationale**:
   - Completes the Phase-5 query-language growth backlog item while preserving deterministic BFS semantics and 100% Prolog/Python parity.
   - `count` composes over `DialogQuery.subquery` without duplicating reasoner logic; `path` reuses existing BFS reachability; `not` uses closed-world triple matching.
-- **User Decision Gate / Confirmation Check (`2026-11-20`)**:
-  - **Status**: **`unconfirmed — no transcript in-repo`** (re-opened as the user's ratify-or-revert call).
-  - **User Confirmation Check (`2026-11-20`)**: When asked in visible chat whether they answered an `ask_question` prompt in Antigravity on `2026-11-19` and picked `"Ratify: Keep path/count/not + retract_turn/session_save/restore"`, the user replied verbatim: `"I don't believe so"`.
-  - **Action**: The prior `2026-11-19` ratification statement is retracted; Rank 7 (`path`/`count`/`not` query kinds and `retract_turn`/`session_save`/`session_restore` MCP tools) awaits an explicit ratify-or-revert decision from the user in visible chat.
+- **User Decision Gate / Resolution (`2026-11-20`)**:
+  - **Prior Confirmation Check (`2026-11-20`)**: Earlier on `2026-11-20`, when asked in visible chat whether they had answered an `ask_question` prompt on `2026-11-19` picking Ratify, the user replied verbatim `"I don't believe so"`, so the prior `2026-11-19` statement was retracted in `08b3e14` as `"unconfirmed — no transcript in-repo"` and the gate was re-opened.
+  - **Outcome**: **Ratified** by the user in visible chat (`2026-11-20`, verbatim reply: `"ratify, fix next, push both"`).
+  - **Scope Retained**: Keep `path`, `count`, and `not` query kinds alongside `retract_turn`, `session_save`, and `session_restore` MCP tools and their tests.
+  - **Trigger Status**: Ratified without a recorded trigger.
 
 ### 7.16 Module Decomposition Superseding §7.9 / 5.5
 - **Date**: 2026-11-19
