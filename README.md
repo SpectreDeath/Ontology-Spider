@@ -67,7 +67,7 @@ pip install -e ".[dev]"
 When installed, the `dialog` command is available as a CLI entrypoint (identical to `python -m ontology_spider.cli` or `python -m ontology_spider`).
 
 ### Running Tests & Coverage
-The test suite contains 105 unit tests with >=90% statement coverage:
+The test suite contains 120 unit tests with >=90% statement coverage:
 ```bash
 # Run all tests (via pytest or unittest)
 pytest
@@ -200,7 +200,9 @@ Ontology-Spider/
 │   │   ├── worker.py           # Long-lived persistent Prolog worker process
 │   │   └── translator.py       # Bi-directional Prolog <-> Model translation
 │   ├── mcp/                    # Model Context Protocol stdio server
-│   │   ├── server.py           # JSON-RPC 2.0 tool and resource dispatcher (16 tools, 3 resource schemes)
+│   │   ├── server.py           # JSON-RPC 2.0 tool and resource dispatcher (19 tools, 3 resource schemes)
+│   │   ├── handlers.py         # Tool dispatch handlers & 9 mutating-tool read-only guard
+│   │   ├── schemas.py          # MCP tool schema catalog (19 tools)
 │   │   ├── transport.py        # Stdio NDJSON transport with Content-Length framing support
 │   │   └── __main__.py         # Standalone entrypoint (python -m ontology_spider.mcp)
 │   └── harness/                # Testing, synthetic topology, & benchmark harness
@@ -213,12 +215,12 @@ Ontology-Spider/
 │   ├── tutorial.dialog         # Getting-started tutorial corpus
 │   ├── drones.dialog           # Comprehensive UAV & subsystem benchmark
 │   └── vault_adapter.py        # Reference Seam adapter implementation
-├── tests/                      # Unit and integration test suite (105 unit tests, >=90% statement coverage)
+├── tests/                      # Unit and integration test suite (120 unit tests, >=90% statement coverage)
 └── docs/                       # Specifications and reference manuals
     ├── architecture.md         # System architecture, pipeline DAG, trust model, & deferred list
     ├── api.md                  # Python API reference
     ├── cli.md                  # Command-line interface reference (6 subcommands)
-    ├── mcp.md                  # Model Context Protocol server reference (16 tools, 3 resource schemes)
+    ├── mcp.md                  # Model Context Protocol server reference (19 tools, 3 resource schemes)
     ├── harness.md              # Testing, parity, and benchmark harness reference
     ├── language_reference.md   # .dialog grammar & query syntax
     ├── semantics.md            # Canonical reasoning semantics & answer contracts
@@ -234,7 +236,7 @@ Ontology-Spider/
 - [System Architecture](docs/architecture.md): Complete pipeline map, import DAG, reasoner selection, trust boundaries, and deferred capabilities.
 - [Python API Reference](docs/api.md): Programmatic reference for `load_model`, `run_query`, `validate_model`, and `export_model`.
 - [CLI Reference](docs/cli.md): Command-line guide covering all 6 subcommands (`run`, `repl`, `validate`, `export`, `elicit`, `mcp`).
-- [MCP Server Reference](docs/mcp.md): Model Context Protocol stdio server reference, 16 tools, 3 resources, and sandbox bounds.
+- [MCP Server Reference](docs/mcp.md): Model Context Protocol stdio server reference, 19 tools, 3 resources, and sandbox bounds.
 - [Testing & Benchmark Harness](docs/harness.md): Performance budgets, parity evaluator, property testing, and 5 corpus scenarios.
 - [Language Reference](docs/language_reference.md): Grammar and query specification for `.dialog` files.
 - [Semantics & Reasoning](docs/semantics.md): Canonical reasoning semantics, explanation format, and answer contracts.

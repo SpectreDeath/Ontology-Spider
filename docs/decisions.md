@@ -130,7 +130,7 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Decision**: Enforce performance budgets via `src/ontology_spider/harness/baselines/bench_budgets.json` in a dedicated CI job:
   1. `lattice_20_ancestors_p50_ms` < 15.0 ms
   2. `python_10k_query_p50_ms` < 5.0 ms
-  3. `lattice_10k_validate_ms` < 1000.0 ms
+  3. `lattice_10k_validate_ms` < 1000.0 ms *(superseded by §7.12: adjusted to 1500.0 ms)*
   4. Full test suite execution < 4000.0 ms (target)
 - **Baseline Machine Specs**:
   - OS: Windows 11 Pro 64-bit
@@ -142,10 +142,10 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Date**: 2026-11-08
 - **Dispositions**:
   - **5.1 Reasoner Sharing in TraversalDialogueManager**: `Session.__init__` now explicitly forwards `reasoner=self.reasoner` and timeout/inference parameters into `TraversalDialogueManager`, eliminating redundant `PrologReasoner` construction and facts cache duplication.
-  - **5.2 Session Reasoner & Traversal Wiring**: Eliminated unread `Session.python_reasoner`. Wired `Session.traversal` directly into `MCPServer` (`mcp/server.py:75, 396, 431`) to reuse the session's active traversal manager and avoid duplicate allocations.
+  - **5.2 Session Reasoner & Traversal Wiring**: Eliminated unread `Session.python_reasoner`. Wired `Session.traversal` directly into `MCPServer` (`mcp/server.py:78` and `mcp/handlers.py:56, 90, 217`; original `mcp/server.py:75, 396, 431` references predated the `mcp/handlers.py` extraction) to reuse the session's active traversal manager and avoid duplicate allocations.
   - **5.3 Engine Backend Availability Caching**: `Engine` caches the Prolog probe once per instance (`_prolog_available`) rather than instantiating reasoners on every property access.
   - **5.4 Functional API Construction Pattern**: Confirmed that `api.run_query` and `Engine.query` retain one-shot construction as designed for stateless functional calls, while stateful workflows use `SessionManager` or `MCPServer`.
-  - **5.5 State Machine File Layout**: Verified that `mcp/server.py` and `elicitation.py` remain single cohesive units with clear sub-dispatchers, maintaining 100% test pass rate without artificial module fracturing.
+  - **5.5 State Machine File Layout**: Verified that `mcp/server.py` and `elicitation.py` remain single cohesive units with clear sub-dispatchers, maintaining 100% test pass rate without artificial module fracturing. *(Superseded by §7.16 on 2026-11-19 after extracting `mcp/handlers.py`, `mcp/schemas.py`, and `elicitation_amend.py`.)*
 
 ### 7.10 Verified CI Run History & Platform Timer Resolution
 - **Date**: 2026-11-08
@@ -202,19 +202,19 @@ This document records the foundational decisions for the `Ontology-Spider` engin
      - Replaced recursive DFS with iterative BFS for `OntologyValidator.get_all_superclasses` and an iterative explicit call-stack implementation of Tarjan's strongly connected components (SCC) algorithm in `src/ontology_spider/validation.py`.
      - *Rationale*: Eliminates CPython `RecursionError: maximum recursion depth exceeded` when validating deep linear chains or large cyclic graphs ($N \ge 1,000$).
      - *Semantics Preserved*: Preserves exact transitive superclass reachability set and identical cycle component detection.
-     - *Pinned Test*: `tests/test_validation.py::TestOntologyValidator.test_validate_deep_chain_no_recursion_error` ($N=3,000$ chain validated with zero cycle violations and zero recursion errors).
+     - *Pinned Test*: `tests/test_validation.py::TestValidation.test_validate_deep_chain_no_recursion_error` ($N=3,000$ chain validated with zero cycle violations and zero recursion errors).
   2. **`Session.retract_assertion` Return Signature (`bool`)**:
      - `Session.retract_assertion(assertion_id)` explicitly returns `bool` indicating whether an assertion was found and removed (`True`) or did not exist (`False`).
      - *Rationale*: Caller transparency without requiring an extra query to verify retraction state.
-     - *Pinned Test*: `tests/test_model.py::TestOntologyModel.test_retract_assertion` and `tests/test_engine.py`.
+     - *Pinned Test*: `tests/test_model.py::TestModel.test_retract_assertion` and `tests/test_harness_properties.py::TestHarnessProperties.test_engine_and_session_full`.
   3. **Harness Runner Unsupported Transport Guard (`ValueError`)**:
      - `ontology_spider.harness.runner.HarnessRunner` raises explicit `ValueError(f"Unsupported transport: {transport}")` when an unrecognized transport protocol string is configured.
      - *Rationale*: Eliminates silent fallback or cryptic downstream attribute errors on misconfigured benchmark runs.
      - *Pinned Code*: `src/ontology_spider/harness/runner.py:294`.
   4. **`Explanation.to_dict()` Slotted Serialization**:
-     - Added `Explanation.to_dict()` method returning serialized dictionary with `query_type`, `target`, `answers` (recursive `to_dict()`), `rules_applied`, `trace_depth`, and `derived_at`.
-     - *Rationale*: Unifies serialization between CLI, REST API, and JSON-RPC MCP responses while preserving dataclass slots and immutability.
-     - *Pinned Test*: `tests/test_mcp.py` / `tests/test_reasoning.py`.
+     - Added `Explanation.to_dict()` method returning a serialized dictionary (`rules_fired`, `fact_ids`, `path`, `provenance_assertions`).
+     - *Rationale*: Unifies serialization between CLI, Python API, and JSON-RPC MCP responses.
+     - *Pinned Test*: `tests/test_harness_properties.py` / `tests/test_mcp.py` / `tests/test_degraded_mode.py`.
 
 ### 7.14 CI Enforcement Scope Reconciliation (Ruff & Mypy)
 - **Date**: 2026-11-11
@@ -226,12 +226,34 @@ This document records the foundational decisions for the `Ontology-Spider` engin
      - Authoritative CI enforcement runs `mypy src` (the public library codebase).
      - Test files in `tests/` contain dynamic test idioms and assertions and are intentionally excluded from `mypy` gating in CI. The commit message for `01d1ca6` ("across src and tests") is hereby formally reconciled: strict type safety is enforced on `src/`, with unit test contracts verified via `unittest discover`.
 
-### 7.15 Phase-5 Query Language Extensions (`path`, `not`, `count`)
+### 7.15 Phase-5 Query Language Extensions (`path`, `not`, `count`) & Session Lifecycle Extensions
 - **Date**: 2026-11-12
-- **Decision**: Extend `.dialog` query grammar with three deterministic query forms:
+- **Decision**: Extend `.dialog` query grammar with three deterministic query forms (`path`, `not`, `count`) and extend MCP with `retract_turn`, `session_save`, and `session_restore` (`7323f11`):
   1. `query path [via <predicate>] from <X> to <Y>`: Point-to-point shortest directed path query.
   2. `query not <subject> <predicate> <object>`: Closed-world negation check over triple patterns (supporting `?`, `*`, `_` wildcards).
   3. `query count <inner_query>`: Cardinality aggregation returning the integer count of answers produced by `<inner_query>`.
+  4. `retract_turn`, `session_save`, `session_restore`: Turn-scoped rollback and sandboxed JSON session persistence in MCP.
 - **Rationale**:
   - Completes the Phase-5 query-language growth backlog item while preserving deterministic BFS semantics and 100% Prolog/Python parity.
   - `count` composes over `DialogQuery.subquery` without duplicating reasoner logic; `path` reuses existing BFS reachability; `not` uses closed-world triple matching.
+- **User Decision Gate / Ratification (2026-11-19)**:
+  - **Outcome**: **Ratified** by the user in chat (`2026-11-19` interactive `ask_question` prompt — option: *"Ratify: Keep path/count/not + retract_turn/session_save/restore & record in decisions §7.15"*).
+  - **Scope Retained**: Keep `path`, `count`, and `not` query kinds alongside `retract_turn`, `session_save`, and `session_restore` MCP tools and their parity/unit tests.
+  - **Trigger Status**: Ratified without a recorded trigger (no external rollback trigger was specified at ratification time).
+
+### 7.16 Module Decomposition Superseding §7.9 / 5.5
+- **Date**: 2026-11-19
+- **Status**: **Supersedes §7.9 / Disposition 5.5** (`mcp/server.py` and `elicitation.py` single-file layout decision).
+- **Decision**: Retain the cohesive helper extractions introduced in `2d14257` and refined through `b4b513b`:
+  - `src/ontology_spider/mcp/server.py` (`245` lines) + `src/ontology_spider/mcp/handlers.py` (`259` lines) + `src/ontology_spider/mcp/schemas.py` (`224` lines)
+  - `src/ontology_spider/elicitation.py` (`615` lines) + `src/ontology_spider/elicitation_amend.py` (`151` lines)
+- **Rationale**: Extracting MCP tool schemas and call dispatch (`mcp/schemas.py`, `mcp/handlers.py`) and elicitation amendment helpers (`elicitation_amend.py`) isolates transport wiring, schema declarations, and amendment state transitions cleanly without fragmenting core domain state machines or regressing test coverage.
+
+### 7.17 Unified `max_results` Result Cap Across Backends and MCP
+- **Date**: 2026-11-19
+- **Decision**: Enforce the default `max_results=1000` result cap identically across `PrologReasoner`, `PythonReasoner`, `Engine.query`, `DialogSession`, `TraversalDialogueManager`, and the MCP `query` tool, using Prolog's raise-on-exceed semantics (`QueryExecutionError`; `PrologExecutionError` is a subclass of `QueryExecutionError`).
+- **Evidence Tests**:
+  - `tests/test_prolog.py::TestPrologReasoner.test_max_results_cap`
+  - `tests/test_prolog.py::TestPrologReasoner.test_python_reasoner_max_results_cap_and_default_1000`
+  - `tests/test_prolog.py::TestPrologReasoner.test_engine_query_max_results_parity_both_backends`
+  - `tests/test_mcp.py::TestMCPHardening.test_mcp_query_max_results_cap_exposed_and_enforced`

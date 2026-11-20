@@ -50,7 +50,7 @@ class DialogAssertion:
 
 @dataclass(frozen=True)
 class DialogQuery:
-    kind: str  # "lookup", "transitive", "ancestors", "pattern", "filter", "explain", "recommend"
+    kind: str  # "lookup", "transitive", "ancestors", "pattern", "filter", "explain", "recommend", "path", "not", "count"
     subject: str | None = None
     predicate: str | None = None
     object: str | None = None

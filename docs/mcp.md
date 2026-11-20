@@ -22,8 +22,8 @@ python -m ontology_spider mcp --root . --backend python --timeout 5.0 --max-infe
 ## 2. Server Configuration & Security Sandbox
 
 - **Read-Only Gate (`--read-only`)**:
-  - Default: `read_only=False`. Allows in-memory session mutations (`assert_triple`, `declare_entity`, `retract`, `run_dialog`, `focus`, `constrain`).
-  - Opt-In: `--read-only`. Disallows all 6 mutating tools, returning error code `-32001` (`PermissionError: Server is running in read-only mode`).
+  - Default: `read_only=False`. Allows in-memory session mutations (`assert_triple`, `declare_entity`, `retract`, `retract_turn`, `run_dialog`, `focus`, `constrain`, `session_save`, `session_restore`).
+  - Opt-In: `--read-only`. Disallows all 9 mutating tools, returning error code `-32001` (`PermissionError: Server is running in read-only mode`).
 - **Filesystem Sandbox (`--root`)**:
   - All file load operations (`model_load`, `session_open` with `model_path`) and exports are strictly confined within the `--root` directory via `Path.resolve().relative_to(root_dir)`. Any traversal attempt outside root raises `PermissionError`.
 - **Operational Caps**:
@@ -37,7 +37,7 @@ python -m ontology_spider mcp --root . --backend python --timeout 5.0 --max-infe
 
 ---
 
-## 3. Tool Reference (16 Tools)
+## 3. Tool Reference (19 Tools)
 
 ### Session Management
 1. **`session_open`**:
@@ -70,37 +70,37 @@ python -m ontology_spider mcp --root . --backend python --timeout 5.0 --max-infe
    - Parameters: `session_id` (str), `turn_id` (str).
    - Retracts all assertions produced during the specified `turn_id`.
 10. **`session_save`**:
-   - Parameters: `session_id` (str), `path` (str, relative to root).
-   - Persists session model, `turn_counter`, and traversal frame stack to a JSON file within `--root`.
+    - Parameters: `session_id` (str), `path` (str, relative to root).
+    - Persists session model, `turn_counter`, and traversal frame stack to a JSON file within `--root`.
 11. **`session_restore`**:
-   - Parameters: `path` (str, relative to root), `session_id` (optional str).
-   - Restores a saved session from a JSON file within `--root`.
-9. **`run_dialog`**:
-   - Parameters: `session_id` (str), `dialog_text` (str).
-   - Executes multi-statement `.dialog` syntax against the session.
+    - Parameters: `path` (str, relative to root), `session_id` (optional str).
+    - Restores a saved session from a JSON file within `--root`.
+12. **`run_dialog`**:
+    - Parameters: `session_id` (str), `dialog_text` (str).
+    - Executes multi-statement `.dialog` syntax against the session.
 
 ### Querying, Reasoning & Verification
-10. **`query`**:
-    - Parameters: `session_id` (str), `query` (str, e.g. `"query ancestors of delivery_drone"` or `"query recommend quadcopter [payload_kg=5]"`).
-    - Returns: Summary text and structured `answers` array with derived values, fired rules, proof paths, and provenance assertion IDs. Enforces per-query timeout and inference limits.
-11. **`explain`**:
+13. **`query`**:
+    - Parameters: `session_id` (str), `query` (str, e.g. `"query ancestors of delivery_drone"` or `"query recommend quadcopter [payload_kg=5]"`), `max_results` (optional positive int, default `1000`).
+    - Returns: Summary text and structured `answers` array with derived values, fired rules, proof paths, and provenance assertion IDs. Enforces per-query timeout, inference limits, and `max_results` cap on both Prolog and Python backends.
+14. **`explain`**:
     - Parameters: `session_id` (str).
     - Returns: Formatted proof trace for the previous query answers.
-12. **`validate`**:
+15. **`validate`**:
     - Parameters: `session_id` (str).
     - Returns: Array of violations (cycles, disjointness, domain/range errors) with offending assertion IDs.
-13. **`export`**:
+16. **`export`**:
     - Parameters: `session_id` (str), `format` (str: `"json"`, `"dialog"`, `"dot"`, `"html"`).
     - Returns: Serialized model content.
 
 ### Conversational Traversal Stack
-14. **`focus`**:
+17. **`focus`**:
     - Parameters: `session_id` (str), `entity_id` (str), `constraints` (optional dict).
     - Pushes a new subdialogue frame focusing on the given entity.
-15. **`constrain`**:
+18. **`constrain`**:
     - Parameters: `session_id` (str), `key` (str), `value` (str).
     - Adds or updates an active constraint on the current frame.
-16. **`where_am_i`**:
+19. **`where_am_i`**:
     - Parameters: `session_id` (str).
     - Inspects the active traversal frame, focal entity, and active constraints.
 

@@ -29,7 +29,7 @@ All production source code lives under `src/ontology_spider/` with zero third-pa
 - **Interfaces & Protocols**:
   - `api.py` — Python programmatic facade (`load_model`, `run_query`, `validate_model`, `export_model`).
   - `cli.py` — Click-free standard library CLI entrypoint providing 6 subcommands: `run`, `repl`, `validate`, `export`, `elicit`, and `mcp`.
-  - `mcp/server.py` — Model Context Protocol (MCP) server implementing 16 tools, 3 resource templates, session lifecycle, and sandboxing.
+  - `mcp/server.py` — Model Context Protocol (MCP) server implementing 19 tools (`mcp/handlers.py`, `mcp/schemas.py`), 3 resource templates, session lifecycle, and sandboxing.
   - `mcp/transport.py` — Stdio JSON-RPC 2.0 transport supporting newline-delimited JSON (NDJSON) and Content-Length framing.
   - `mcp/__main__.py` — Standalone execution module for `python -m ontology_spider.mcp`.
 - **Testing & Harness**:
@@ -76,8 +76,8 @@ The repository strictly adheres to an acyclic dependency graph:
    - `Engine` probes `PrologReasoner().is_available` once per instance. If SWI-Prolog (`swipl`) is present on system `PATH`, Prolog is chosen for optimal performance.
    - If `swipl` is absent or `--backend python` is passed, `PythonReasoner` serves as the primary engine.
 2. **Degraded Mode Parity**:
-   - `PythonReasoner` implements 100% feature parity for supported query goals (`ancestors`, `transitive`, `recommend`, `filter`, `pattern`).
-   - Pure-Python execution enforces identical inference caps and monotonic timeout limits.
+   - `PythonReasoner` implements 100% feature parity for supported query goals (`lookup`, `ancestors`, `transitive`, `recommend`, `filter`, `pattern`, `path`, `not`, `count`), including unified `max_results` (`1000` default) raise-on-exceed bounds.
+   - Pure-Python execution enforces identical inference caps, result caps, and monotonic timeout limits.
    - Proof traces emitted under degraded mode are tagged with `degraded_python_fallback` in their explanation rules.
 
 ---
@@ -92,7 +92,7 @@ Sessions represent stateful, in-memory conversational contexts:
   - Each session enforces a maximum assertion budget (default: 50,000 assertions).
   - Mutating calls (`assert_triple`, `model_load`, `run_dialog`) validate assertions against this cap before committing state.
 - **Query Bounds**:
-  - Queries execute under strict per-query deadlines (default: 10.0 seconds) and maximum inference steps (default: 1,000,000 inferences).
+  - Queries execute under strict per-query deadlines (default: 10.0 seconds), maximum inference steps (default: 1,000,000 inferences), and result count caps (`max_results`, default: 1,000).
 
 ---
 
@@ -115,13 +115,13 @@ During the 2026-11-08 architecture audit, the following findings were dispositio
 1. **Reasoner Sharing (5.1)**:
    - `Session.__init__` previously initialized separate reasoners for the session and `TraversalDialogueManager`. This was refactored: `TraversalDialogueManager` now explicitly receives `session.reasoner` and shares the same cache and persistent worker.
 2. **Unread Reasoner Attributes & Traversal Wiring (5.2)**:
-   - `Session.python_reasoner` was eliminated as an unread attribute. `Session.traversal` is wired directly to the session's active reasoner and query timeout parameters, and is reused directly by `MCPServer` (`mcp/server.py:75, 401, 441`) to eliminate duplicate session and dialogue-manager allocations.
+   - `Session.python_reasoner` was eliminated as an unread attribute. `Session.traversal` is wired directly to the session's active reasoner and query timeout parameters, and is reused directly by `MCPServer` (`mcp/server.py:78` and `mcp/handlers.py:56, 90, 217`; pre-split `mcp/server.py:75, 401, 441`) to eliminate duplicate session and dialogue-manager allocations.
 3. **Backend Availability Caching (5.3)**:
    - `Engine.active_backend_name` and `available_backends` now cache the Prolog availability probe on first access per `Engine` instance rather than constructing fresh reasoners repeatedly.
 4. **One-Shot API Construction (5.4)**:
    - Evaluated `api.run_query` and `Engine.query`: one-shot construction was confirmed as the desired behavior for isolated functional API invocations, while stateful workflows leverage `SessionManager` and `MCPServer`.
-5. **Single-File State Machine Structure (5.5)**:
-   - Verified that `mcp/server.py` and `elicitation.py` remain single cohesive modules with clear section boundaries; avoiding superficial splitting preserves maintainability without compromising test coverage.
+5. **Modular Dispatcher & Elicitation Helpers (5.5, superseded 2026-11-19)**:
+   - Original 2026-11-08 disposition kept `mcp/server.py` and `elicitation.py` as single files; superseded by [decisions.md](decisions.md) §7.16 (`mcp/server.py`, `mcp/handlers.py`, `mcp/schemas.py`, `elicitation.py`, `elicitation_amend.py`).
 
 ---
 
@@ -140,7 +140,7 @@ The seam is a decoupled boundary separating the core reasoner from external stor
 - **Prolog Goal Construction**: User input queries in `.dialog` are parsed into a typed AST and compiled into strict, predefined rule goals with escaped arguments. Raw user input strings are never passed directly to Prolog as arbitrary execution goals.
 - **Prolog I/O Boundary**: Prolog goals in user-authored external rule files can execute standard SWI-Prolog I/O; the engine makes no claim of an uncircumventable sandbox. Workloads requiring untrusted multi-tenant isolation are deferred.
 - **Timeouts & Inference Limits**: Subprocess timeouts and in-Prolog inference caps (`call_with_inference_limit/3`) ensure that cyclic data or infinite loops terminate deterministically without locking the process.
-- **MCP Trust Boundary**: File access (`model_load`, `import`, file `export`) is confined to `--root` via `Path.resolve().relative_to(root_dir)`. Mutating tools (`assert_triple`, `declare_entity`, `retract`, `run_dialog`, `focus`, `constrain`) are disabled when started with `--read-only`. Active sessions and assertions per session are bounded (max 32 active sessions, max 50,000 assertions per session).
+- **MCP Trust Boundary**: File access (`model_load`, `import`, file `export`, `session_save`, `session_restore`) is confined to `--root` via `Path.resolve().relative_to(root_dir)`. All 9 mutating tools (`assert_triple`, `declare_entity`, `retract`, `retract_turn`, `run_dialog`, `focus`, `constrain`, `session_save`, `session_restore`) are disabled when started with `--read-only`. Active sessions and assertions per session are bounded (max 32 active sessions, max 50,000 assertions per session).
 
 ---
 
