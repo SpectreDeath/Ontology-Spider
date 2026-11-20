@@ -236,10 +236,10 @@ This document records the foundational decisions for the `Ontology-Spider` engin
 - **Rationale**:
   - Completes the Phase-5 query-language growth backlog item while preserving deterministic BFS semantics and 100% Prolog/Python parity.
   - `count` composes over `DialogQuery.subquery` without duplicating reasoner logic; `path` reuses existing BFS reachability; `not` uses closed-world triple matching.
-- **User Decision Gate / Ratification (2026-11-19)**:
-  - **Outcome**: **Ratified** by the user in chat (`2026-11-19` interactive `ask_question` prompt — option: *"Ratify: Keep path/count/not + retract_turn/session_save/restore & record in decisions §7.15"*).
-  - **Scope Retained**: Keep `path`, `count`, and `not` query kinds alongside `retract_turn`, `session_save`, and `session_restore` MCP tools and their parity/unit tests.
-  - **Trigger Status**: Ratified without a recorded trigger (no external rollback trigger was specified at ratification time).
+- **User Decision Gate / Confirmation Check (`2026-11-20`)**:
+  - **Status**: **`unconfirmed — no transcript in-repo`** (re-opened as the user's ratify-or-revert call).
+  - **User Confirmation Check (`2026-11-20`)**: When asked in visible chat whether they answered an `ask_question` prompt in Antigravity on `2026-11-19` and picked `"Ratify: Keep path/count/not + retract_turn/session_save/restore"`, the user replied verbatim: `"I don't believe so"`.
+  - **Action**: The prior `2026-11-19` ratification statement is retracted; Rank 7 (`path`/`count`/`not` query kinds and `retract_turn`/`session_save`/`session_restore` MCP tools) awaits an explicit ratify-or-revert decision from the user in visible chat.
 
 ### 7.16 Module Decomposition Superseding §7.9 / 5.5
 - **Date**: 2026-11-19
